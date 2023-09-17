@@ -1,0 +1,267 @@
+#Code for RT-PCR analysis
+
+setwd("/Users/tabitharucker/Desktop/PhDEpiExp/RT-PCR")
+# see RNAseq analysis to create 'countData' 
+
+countDataWOMIA <- countData %>% dplyr::select(!(starts_with(c("E18_MIA","E19_MIA","P3_MIA","E19_E_", "E19_P_", "P3", "P5", "P7"))))
+countDataRTPCR <- countDataWOMIA%>% dplyr::select(!(ends_with(c("_4", "_5", "_6"))))
+metaRTPCR <-meta[meta$samples %in% c(colnames(countDataRTPCR)), ] 
+metaRTPCR_c <- metaRTPCR[metaRTPCR$Group=="ctrl",]
+metaRTPCR_sp<- metaRTPCR[metaRTPCR$Group=="special",]
+countDataRTPCR_c <-countDataRTPCR[,colnames(countDataRTPCR) %in% metaRTPCR_c$samples ] 
+countDataRTPCR_sp <-countDataRTPCR[,colnames(countDataRTPCR) %in% metaRTPCR_sp$samples ] 
+
+ddsRTPCR_c <- DESeqDataSetFromMatrix(countData = countDataRTPCR_c,
+                                     colData = metaRTPCR_c,
+                                     design = ~ Age)
+ddsRTPCR_sp <- DESeqDataSetFromMatrix(countData = countDataRTPCR_sp,
+                                      colData = metaRTPCR_sp,
+                                      design = ~ Age)
+dds_RTPCR_c <- DESeq(ddsRTPCR_c)
+dds_RTPCR_sp <- DESeq(ddsRTPCR_sp) 
+
+marker <- c("Pax6", "Sox2", "Cux1", "Satb2", "Syp", "Grin2b", "Map2", "Cx3cl1", "Csf1r", 
+            "P2ry12", "Fcrl2", "Itgam", "Aif1", "Cx3cr1", "Csf1",
+            "Arx", "Bcan", "Cd81", "Cops7a", "Dlx1", "Eomes", "Fezf2", "Ndrg2", "Ndufv1", "Neurod6", "Neurog2", "Ppp2r1b", "Rnd2", "Slc1a3", "Timp2")
+
+RTPCR_results_E16_c <- results(dds_RTPCR_c,tidy = T, contrast=c("Age","E16","E14"))
+RTPCR_results_E17_c <- results(dds_RTPCR_c,tidy = T, contrast=c("Age","E17","E14"))
+RTPCR_results_E18_c <- results(dds_RTPCR_c,tidy = T, contrast=c("Age","E18","E14"))
+RTPCR_results_E19_c <- results(dds_RTPCR_c,tidy = T, contrast=c("Age","E19","E14"))
+
+E16 <- RTPCR_results_E16_c[RTPCR_results_E16_c$row%in%marker,]%>%pull( "log2FoldChange")
+E16_genes <- RTPCR_results_E16_c[RTPCR_results_E16_c$row%in%marker,]%>%pull("row")
+E17 <- RTPCR_results_E17_c[RTPCR_results_E17_c$row%in%marker,]%>%pull( "log2FoldChange")
+E17_genes <- RTPCR_results_E17_c[RTPCR_results_E17_c$row%in%marker,]%>%pull("row")
+E18 <- RTPCR_results_E18_c[RTPCR_results_E18_c$row%in%marker,]%>%pull( "log2FoldChange")
+E18_genes <- RTPCR_results_E18_c[RTPCR_results_E18_c$row%in%marker,]%>%pull("row")
+E19 <- RTPCR_results_E19_c[RTPCR_results_E19_c$row%in%marker,]%>%pull( "log2FoldChange")
+E19_genes <- RTPCR_results_E19_c[RTPCR_results_E19_c$row%in%marker,]%>%pull("row")
+df_RNAseq_c <- data.frame(gene = c(E16_genes, E17_genes, E18_genes, E19_genes), E16 = E16, E17 = E17, E18 = E18, E19 = E19)
+df_RNAseq_c$population <- "ctrl"
+
+RTPCR_results_E16_sp <- results(dds_RTPCR_sp,tidy = T, contrast=c("Age","E16","E14"))
+RTPCR_results_E17_sp <- results(dds_RTPCR_sp,tidy = T, contrast=c("Age","E17","E14"))
+RTPCR_results_E18_sp <- results(dds_RTPCR_sp,tidy = T, contrast=c("Age","E18","E14"))
+RTPCR_results_E19_sp <- results(dds_RTPCR_sp,tidy = T, contrast=c("Age","E19","E14"))
+
+E16 <- RTPCR_results_E16_sp[RTPCR_results_E16_sp$row%in%marker,]%>%pull( "log2FoldChange")
+E16_genes <- RTPCR_results_E16_sp[RTPCR_results_E16_sp$row%in%marker,]%>%pull("row")
+E17 <- RTPCR_results_E17_sp[RTPCR_results_E17_sp$row%in%marker,]%>%pull( "log2FoldChange")
+E17_genes <- RTPCR_results_E17_sp[RTPCR_results_E17_sp$row%in%marker,]%>%pull("row")
+E18 <- RTPCR_results_E18_sp[RTPCR_results_E18_sp$row%in%marker,]%>%pull( "log2FoldChange")
+E18_genes <- RTPCR_results_E18_sp[RTPCR_results_E18_sp$row%in%marker,]%>%pull("row")
+E19 <- RTPCR_results_E19_sp[RTPCR_results_E19_sp$row%in%marker,]%>%pull( "log2FoldChange")
+E19_genes <- RTPCR_results_E19_sp[RTPCR_results_E19_sp$row%in%marker,]%>%pull("row")
+df_RNAseq_sp <- data.frame(gene = c(E16_genes, E17_genes, E18_genes, E19_genes), E16 = E16, E17 = E17, E18 = E18, E19 = E19)
+df_RNAseq_sp$population <- "special"
+
+co <- rbind(df_RNAseq_c, df_RNAseq_sp)
+write.csv(co, "RNAseqCounts.csv")
+
+
+# Figure B
+meanlog_counts <-  readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq embryonal set/Data tables thesis/RTPCRvsRNAseqCalc.xlsx", sheet = 9)  
+view(ref)
+melted_mean_counts <- melt(meanlog_counts)
+melted_mean_counts$Age <- as.factor(melted_mean_counts$variable) 
+ref  <- melted_mean_counts %>%
+  pivot_wider(names_from = Method, values_from = value, values_fill = NA) %>%dplyr::select(-c(variable))
+ref2 <- ref[ref$Marker==c("progenitor"),]
+ggscatter(ref2, x = "RT_PCR", y = "RNAseq",
+          # add = "reg.line", conf.int = TRUE,
+          # cor.coef = TRUE, cor.method = "spearman",
+          xlab = "RT-PCR (log2)", ylab = "RNAseq (log2)",
+          color = "Age",# palette = "Set1",        
+          label = "Gene",  font.label = c(10, "plain"),
+          repel = TRUE, 
+          fullrange = F,                     
+          rug = TRUE) +
+  stat_cor(aes(color = Age, label = paste(..rr.label.., ..p.label.., sep = "~`,`~")), show.legend = FALSE,
+           method = "spearman", label.x.npc = 0, label.y.npc = 1) +
+  geom_smooth(method = "lm", se = TRUE,alpha=0.25, formula = y ~ x, aes (color=Age, fill=Age)) +
+  scale_colour_brewer(palette="Set1", name="Age")+
+  scale_fill_brewer(palette="Set1", name="Age")+
+  scale_y_continuous(limits=c(-6,4), breaks = seq(-6,4, by = 2))+
+  facet_wrap(.~Group,ncol=2,
+             labeller = labeller(Group = c(ctrl="pCAG-tDimer",special= "pNeuroD-eGFP")))+
+  theme_minimal()  +
+  labs(title="Progenitor marker genes",
+       subtitle = "RT-PCR vs RNAseq samples")+
+   geom_hline( aes(yintercept = 0), linetype=2, color="black")+
+  geom_vline( aes(xintercept = 0), linetype=2, color="black")+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  theme_own+
+  theme(plot.title = element_markdown(),
+        panel.spacing.x = unit(0.5, "cm"),
+        panel.spacing.y = unit(0.1, "cm"))
+
+
+# Figure A
+
+log_counts <-  readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq embryonal set/Data tables thesis/RTPCRvsRNAseqCalc.xlsx", sheet = 11)  
+
+melted_counts <- melt(log_counts[,c(1,2,5:9, 10,11)])
+melted_counts$Age <- as.factor(melted_counts$variable) 
+
+RT_PCR <- melted_counts[melted_counts$Method=="RT_PCR",]
+RNAseq <- melted_counts[melted_counts$Method=="RNAseq",]
+RT_PCR_progenitor <- RT_PCR[RT_PCR$Marker=="progenitor",]
+RNAseq_progenitor <- RNAseq[RNAseq$Marker=="progenitor",]
+RT_PCR_neuronal <- RT_PCR[RT_PCR$Marker=="neuronal",]
+RNAseq_neuronal <- RNAseq[RNAseq$Marker=="neuronal",]
+RT_PCR_microglia <- RT_PCR[RT_PCR$Marker=="microglia",]
+RNAseq_microglia <- RNAseq[RNAseq$Marker=="microglia",]
+
+my_sum_neuronal_RT_PCR <- RT_PCR_neuronal %>%
+  dplyr::group_by(Genes,Group,variable) %>%
+  dplyr::summarise( 
+    n=n(),
+    mean=mean(value),
+    sd=sd(value)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+my_sum_neuronal_RNAseq <- RNAseq_neuronal %>%
+  dplyr::group_by(Genes,Group,variable) %>%
+  dplyr::summarise( 
+    n=n(),
+    mean=mean(value),
+    sd=sd(value)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+my_sum_progenitor_RT_PCR <- RT_PCR_progenitor %>%
+  dplyr::group_by(Genes,Group,variable) %>%
+  dplyr::summarise( 
+    n=n(),
+    mean=mean(value),
+    sd=sd(value)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+my_sum_progenitor_RNAseq <- RNAseq_progenitor %>%
+  dplyr::group_by(Genes,Group,variable) %>%
+  dplyr::summarise( 
+    n=n(),
+    mean=mean(value),
+    sd=sd(value)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+my_sum_microglia_RT_PCR <- RT_PCR_microglia %>%
+  dplyr::group_by(Genes,Group,variable) %>%
+  dplyr::summarise( n=n(),
+                    mean=mean(value),
+                    sd=sd(value)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+my_sum_microglia_RNAseq <- RNAseq_microglia %>%
+  dplyr::group_by(Genes,Group,variable) %>%
+  dplyr::summarise( n=n(),
+                    mean=mean(value),
+                    sd=sd(value)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+p3 <- RT_PCR_microglia%>%  ggplot()+ 
+  geom_hline( aes(yintercept = 0), linetype=1, color="black")+
+  scale_y_continuous(name="RT-PCR:\n log transformed RQ counts", limits=c(-25,20), 
+                     sec.axis = sec_axis(~.*3, name="RNAseq:\n log transformed and\n normalised(dds) counts"))+
+  geom_bar(data=my_sum_microglia_RT_PCR,aes(x =variable, y=mean,fill=Group, colour=Group,group=Group),stat='identity', 
+           width=0.75, linewidth=1,alpha=0.2,position = position_dodge(width =0.5), show.legend = T)+
+  geom_pointrange( data=my_sum_microglia_RT_PCR,aes(x =variable, y=mean, ymin=mean-sd, ymax=mean+sd, 
+                                                    colour=Group),stat='identity', show.legend = F,  position = position_dodge2(width = 0.5, padding = 0.5), alpha=0.9, size=0.3)+
+  geom_point(data=RNAseq_microglia,aes(x = Age, y= value/3, alpha=0.5, colour=Group), show.legend = F, size=2)+
+  geom_smooth(data=RNAseq_microglia,aes(x=as.numeric(Age),y=value/3,  colour=Group), 
+              se=T,level=0.25, show.legend = F)+
+  facet_wrap(.~Genes,  scales = "free_x", nrow=1)+ #, switch = "x")+
+  scale_colour_manual("",values = c("ctrl" = "red", "special" = "forestgreen")) +
+  scale_fill_manual("",values = c("ctrl" = "red", "special" = "forestgreen")) +
+ labs(title="Microglia-like marker genes", x="Genes")+
+  theme_minimal()  +
+  scale_alpha(guide=F)+
+  theme(panel.border = element_blank(),
+        panel.spacing.x = unit(1, "lines"),
+        strip.text.x = element_text(size = 15, face="bold"),
+        plot.margin = unit(c(1,1,0,1), "lines"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=10),
+        axis.text.y = element_text( size=15),
+        axis.title.y =element_text( size = 12,  vjust=2),
+        axis.title.x =element_blank(),
+        legend.text = element_text(size = 15),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom")
+p2 <- RT_PCR_neuronal%>%  ggplot()+ 
+  geom_hline( aes(yintercept = 0), linetype=1, color="black")+
+  scale_y_continuous(name="RT-PCR:\n log transformed RQ counts", limits=c(-6,8), 
+                     sec.axis = sec_axis(~.*3, name="RNAseq:\n log transformed and\n normalised(dds) counts"))+
+  geom_bar(data=my_sum_neuronal_RT_PCR,aes(x =variable, y=mean,fill=Group, colour=Group,group=Group),stat='identity', 
+           width=0.75, linewidth=1,alpha=0.2,position = position_dodge(width =0.5), show.legend = T)+
+  geom_pointrange( data=my_sum_neuronal_RT_PCR,aes(x =variable, y=mean, ymin=mean-sd, ymax=mean+sd, colour=Group),stat='identity', 
+                   show.legend = F,  position = position_dodge2(width = 0.5, padding = 0.5), alpha=0.9, size=0.3)+
+  geom_point(data=RNAseq_neuronal,aes(x = Age, y= value/3, alpha=0.5, colour=Group), show.legend = F, size=2)+
+  geom_smooth(data=RNAseq_neuronal,aes(x=as.numeric(Age),y=value/3,  colour=Group), se=T,level=0.25, show.legend = F)+
+  facet_wrap(.~Genes,  scales = "free_x", nrow=1)+ #, switch = "x")+
+  scale_colour_manual("",values = c("ctrl" = "red", "special" = "forestgreen")) +
+  scale_fill_manual("",values = c("ctrl" = "red", "special" = "forestgreen")) +
+  labs(title="Neuronal-specific genes", x="Genes")+
+  theme_minimal()  +
+  scale_alpha(guide=F)+
+  theme(panel.border = element_blank(),
+        panel.spacing.x = unit(1, "lines"),
+        strip.text.x = element_text(size = 15, face="bold"),
+        plot.margin = unit(c(1,1,0,1), "lines"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=10),
+        # axis.text.x = element_blank(),
+        axis.text.y = element_text( size=15),
+        # axis.text.x=element_blank(),
+        axis.title.y =element_text( size = 12,  vjust=2),
+        axis.title.x =element_blank(),
+        legend.text = element_text(size = 15),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom")
+p1 <-  RT_PCR_progenitor%>%  ggplot()+ 
+  geom_hline( aes(yintercept = 0), linetype=1, color="black")+
+  scale_y_continuous(name=paste("RT-PCR:\n log transformed RQ counts"), limits=c(-6,8), 
+                     sec.axis = sec_axis(~.*3, name="RNAseq:\n log transformed and\n normalised(dds) counts"))+
+  geom_bar(data=my_sum_progenitor_RT_PCR,aes(x =variable, y=mean,fill=Group, colour=Group,group=Group),stat='identity', 
+           width=0.75, linewidth=1,alpha=0.2,position = position_dodge(width =0.5), show.legend = T)+
+  geom_pointrange( data=my_sum_progenitor_RT_PCR,aes(x =variable, y=mean, ymin=mean-sd, ymax=mean+sd, colour=Group),stat='identity', 
+                   show.legend = F,  position = position_dodge2(width = 0.5, padding = 0.5), alpha=0.9, size=0.3)+
+  geom_point(data=RNAseq_progenitor,aes(x = Age, y= value/3, alpha=0.5, colour=Group), show.legend = F, size=2)+
+  geom_smooth(data=RNAseq_progenitor,aes(x=as.numeric(Age),y=value/3,  colour=Group), se=T,level=0.25, show.legend = F)+
+  facet_wrap(.~Genes,  scales = "free_x", nrow=1)+ #, switch = "x")+
+  scale_colour_manual("",values = c("ctrl" = "red", "special" = "forestgreen")) +
+  scale_fill_manual("",values = c("ctrl" = "red", "special" = "forestgreen")) +
+  labs(title="Progenitor-specific genes", x="Genes")+
+  theme_minimal()  +
+  scale_alpha(guide=F)+
+  theme(panel.border = element_blank(),
+        panel.spacing.x = unit(1, "lines"),
+        strip.text.x = element_text(size = 15, face="bold"),
+        plot.margin = unit(c(1,1,0,1), "lines"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=10),
+        # axis.text.x = element_blank(),
+        axis.text.y = element_text( size=15),
+        # axis.text.x=element_blank(),
+        axis.title.y =element_text( size = 12, vjust=2),
+        axis.title.x =element_blank(),
+        legend.text = element_text(size = 15),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom")
+
+ggpubr::ggarrange(p1, p2, p3, nrow = 3,
+                  common.legend=T, legend="bottom") 
