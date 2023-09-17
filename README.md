@@ -1,9 +1,9 @@
 # NeuroDev
-PhD project UpperLayerCorticogenesis
+PhD project UpperLayerCorticogenesis 2019-2023
 
 ## Project overview
 
-- This repository is part of the PhD thesis of Tabitha Rücker and will get published in ...
+- This repository is part of the PhD project of Tabitha Rücker and will get published in ...
 * Proteomics
 * RNA seq
     * EDA
