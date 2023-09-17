@@ -6,7 +6,6 @@ PhD project UpperLayerCorticogenesis 2019-2023
 - This repository is part of the PhD project of Tabitha Rücker, which will get published in ...
 * Proteomics
 * RNA seq
-    * EDA
 * RT-PCR
 * EMseq
 
