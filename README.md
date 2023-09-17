@@ -30,10 +30,11 @@ Comparison of a specialised upper layer neuronal cohort during physiological and
     * E16
     * E17
     * E18
-    * E19
+    * E19_E
     
     * postnatal timepoints:
     
+    * E19_P
     * P3
     * P5
     * P7    
