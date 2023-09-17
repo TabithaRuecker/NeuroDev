@@ -3,7 +3,7 @@ PhD project UpperLayerCorticogenesis 2019-2023
 
 ## Project overview
 
-- This repository is part of the PhD project of Tabitha Rücker and will get published in ...
+- This repository is part of the PhD project of Tabitha Rücker, which will get published in ...
 * Proteomics
 * RNA seq
     * EDA
@@ -12,12 +12,18 @@ PhD project UpperLayerCorticogenesis 2019-2023
 
 
 ## Code and Resources Used 
-** R version 4.1.0  
+** R version 2023.06.0+421  
 **Packages:** tidyverse, DESeq2, ... 
 
 
 ## Data set
-Comparison of a specialised neuronal cohort (pNeuroD +) during neurogenesis between immunostimulated mice and their respective PBS control:
+Comparison of a specialised upper layer neuronal cohort during physiological and immunostimulated neurogenesis and their respective PBS control:
+* Cell populations:
+    * pCAG-Venus (ubiquitous expression)
+    * pGlast-dsRed2 (radial glia cell-specific) 
+    * pCAG-tDimer (ubiquitous expression)
+    * pNeuroD-eGFP (post-mitotic neuron-specific) 
+
 *	Basic landscape:
     * embryonal timepoints: 
     
