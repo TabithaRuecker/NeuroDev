@@ -1,0 +1,765 @@
+# Code for Mass Spec plots
+
+setwd("/Users/tabitharucker/Desktop/PhDEpiExp/Proteomics/MassSpec_Tabitha/BeadBased Data")
+library(DEP)
+
+# Data preparation ----
+## Protein count data ---- 
+ProtCounts <- readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/Proteomics/MassSpec_Tabitha/BeadBased Data/Raw Data_Harmonized.xlsx")
+ProtCounts <- ProtCounts[,c(1,3,5:76)]%>%as.data.frame()
+## Meta data ----
+experimentaldesign <- readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/Proteomics/MassSpec_Tabitha/BeadBased Data/Sample_annotation.xlsx", sheet = 3)
+### reorder column names in protein count file based on resorted meta data
+column_order <- experimentaldesign$label
+PP <- ProtCounts[,c(3:74)]
+PP_idx <- match(experimentaldesign$label, colnames(PP))
+PP_sorted <- PP[, PP_idx] 
+colnames(PP_sorted)
+# 4339 proteins were detected across 72 samples
+#In the following, E19_E and E19_P samples were jointly analysed as E19 samples due to the small amount of replicates
+
+# For All ---- 
+#  72 samples
+Prot <- PP_sorted
+Pcounts <- as.data.frame(apply(Prot, 2, as.numeric))
+meta <-experimentaldesign
+meta$ID <- meta$label
+
+# For WOMIA ---- 
+# MIA samples (E18, E19, P3) were separated from the non-MIA (E14, E16, E17, P7) samples
+# 41 samples left
+ProtWOMIA <- PP_sorted %>%dplyr::select(-contains("MIA"))
+Pcounts <- as.data.frame(apply(ProtWOMIA, 2, as.numeric))
+metaWOMIA <-experimentaldesign[experimentaldesign$MIA==F, ] 
+metaWOMIA$ID <- metaWOMIA$label
+
+# For MIA ----
+# For MIA, 49 samples were considered for analysis (E18, E19, and P3)
+Prot_MIA <- PP_sorted %>%
+  dplyr::select(starts_with("E18"), starts_with("E19"),  starts_with("P3"))
+Pcounts <- as.data.frame(apply(Prot_MIA, 2, as.numeric))
+metaMIA <-experimentaldesign[experimentaldesign$label %in% colnames(Prot_MIA), ] 
+metaMIA$ID <- metaMIA$label
+
+# Analysis ----
+Pcounts[Pcounts == "NaN"] <- NA
+Pcounts$"Protein ID" <- ProtCounts$`Protein ID`
+Pcounts$"Gene name" <- ProtCounts$`Gene name`
+data_unique <- DEP::make_unique(Pcounts, 'Protein ID', 'Gene name', delim = "_")
+data_unique$`Protein ID` <- NULL
+data_unique$`Gene name` <- NULL
+str(data_unique)
+
+## SummarisedExperiment ----
+
+### For All ----
+sce <- SummarizedExperiment(assays = list(counts = data_unique[,c(1:72)]),
+                            rowData=data_unique[,c(73:74)],
+                            colData = meta)
+rownames(sce) <- rowData(sce)$name
+colData(sce)$condition <- colData(sce)$Group
+colData(sce)$replicate <- colData(sce)$Age
+
+### For WOMIA ----
+sceWOMIA <- SummarizedExperiment(assays = list(counts = data_unique[,c(1:41)]),
+                               rowData=data_unique[,c(42:43)],
+                               colData = metaWOMIA)
+rownames(sceWOMIA)<- rowData(sceWOMIA)$name
+colData(sceWOMIA)$condition <- colData(sceWOMIA)$Age
+colData(sceWOMIA)$replicate <- colData(sceWOMIA)$Group
+
+### For MIA ----
+sceMIA <- SummarizedExperiment(assays = list(counts = data_unique[,c(1:49)]),
+                               rowData=data_unique[,c(50:51)],
+                               colData = metaMIA)
+rownames(sceMIA) <- rowData(sceMIA)$name
+colData(sceMIA)$condition <- colData(sceMIA)$Treatment
+colData(sceMIA)$replicate <- colData(sceMIA)$Age
+
+# Protein coverage ----
+plot_coverage(sce)+ 
+  guides(fill="none")+
+  theme(axis.text.x = element_text( size=12),
+                           axis.text.y = element_text( hjust = 1, size=12),
+                           legend.justification = "center",
+                           legend.direction = "vertical",
+                           legend.box = "center",
+                           legend.position = "right",
+                           legend.text = element_text(size = 10, face = "bold"),
+                           legend.title = element_text(size = 16, face = "bold"),
+                           legend.key = element_rect(colour = NA, fill = NA),
+                          axis.title = element_text( size = 12, face = "bold"),
+                           plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+                           plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                           strip.background =  element_blank(),
+                           strip.text = element_text(size = 16, face = "bold"))
+# Imputation ----
+#  Given that data is already normalised and harmonized (HarmonizR), 
+#  imputation to remove MNAR values is only subtly and manually performed (shift = 0, scale = 0.1)
+imputed_manual_sce <- manual_impute(sce, shift = 0, scale = 0.1)
+
+imputed_manual_sceWOMIA <- manual_impute(sceWOMIA, shift = 0, scale = 0.1) 
+
+imputed_manual_sceMIA <- manual_impute(sceMIA, shift = 0, scale = 0.1)
+
+# Imputation shifted the log2 intensities 
+plot_imputation(sceWOMIA, imputed_manual_sceWOMIA)+
+  theme_DEP1()+
+  labs(title="Density plot",subtitle = "shift = 0, scale = 0.1",
+       colour= "Samples",
+       x="log2 intensity")+
+  #guides(colour="none")+
+  scale_x_continuous(limits = c(-5, 10), breaks = c(-5, 0, 5, 10))+
+  theme(axis.text.x = element_text( size=12),
+        axis.text.y = element_text( hjust = 1, size=12),
+        legend.justification = "center",
+        legend.direction = "vertical",
+        legend.box = "center",
+        legend.position = "right",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+       # axis.title = element_text( size = 12),
+        plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank(),
+        strip.text = element_text(size = 16, face = "bold"))
+
+# PCA ----
+
+DEP::plot_pca(imputed_manual_sce, x = 1, y = 2, n =  50,
+              point_size = 6, label = F, label_size=2)+
+  labs(title="PCA plot",
+       subtitle="Top 100 detected proteins")+
+   scale_color_hue("Age")+
+ # scale_color_manual("Treatment", values= c(w= "green3", PBS="skyblue2", PolyIC="red"))+
+ # scale_shape_manual("Age", values= c(E18= 19, E19=0, P3=18))+
+  scale_shape_manual("Treatment", values= c(w= 0, PBS=16, PolyIC=15))+
+ #  scale_shape_manual("Group", values= c(ctrl= 0, special=16))+
+  theme(axis.text.x = element_text(angle = 0, hjust = 1, size=12),
+        axis.text.y = element_text( hjust = 1, size=12),
+        legend.justification = "center",
+        legend.direction = "horizontal",
+        legend.box = "vertical",
+        legend.position = "bottom",
+        legend.text = element_text(size = 14, face = "bold"),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        axis.title = element_text(face = "bold", size = 14),
+        plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank())
+
+
+# DEP ----
+
+## DEP Group ----
+## For Group differences (ctrl/tDimer vs special/pNeuroD samples), all samples were considered in the analysis.
+## A low cut-off was chosen, since the cell populations differed not much, as expected 
+data_diff_G <- test_diff(imputed_manual_sce,"control", "ctrl")
+dep_G <- add_rejections(data_diff_G, alpha = 0.5)
+data_results_G <- get_results(dep_G)
+data_res_sig_G <- data_results_G %>% filter(significant)
+dim(data_res_sig_G %>% filter(significant))
+write.csv(data_res_sig_G, file="SigProt_Group.csv")
+### All for GO testing ----
+up_df <- data_res_sig_G[data_res_sig_G$ctrl_centered > 0, ]
+down_df <- data_res_sig_G[data_res_sig_G$special_centered > 0, ]
+dep_list <- list(ctrl=up_df$ID, special=down_df$ID)
+
+## DEP WOMIA ----
+## The samples without MIA (WOMIA) were analysed with a cut-off of 0.1
+data_diff_A <- test_diff(imputed_manual_sceWOMIA,"all")
+dep_A <- add_rejections(data_diff_A, alpha = 0.1)
+data_results_A <- get_results(dep_A)
+data_res_sig_A <- data_results_A[data_results_A$significant==T,]
+dim(data_res_sig_A %>% filter(significant))
+#write.csv(data_res_sig_A, file="SigProt_Age.csv")
+
+# unsignificant 
+dep_uA <- add_rejections(data_diff_A, alpha = 0.5)
+data_results_uA <- get_results(dep_uA)
+data_res_sig_uA <- data_results_uA[data_results_uA$significant==F,]
+dim(data_res_sig_uA)
+write.csv(data_res_sig_uA, file="SigProt_unsignificant.csv")
+
+### Number of DEPs ----
+dep_counts <- rbind(
+  data.frame(Timepoint = "E14", DEG = "Up", Count = length(data_res_sig_A[data_res_sig_A$E14_centered > 0, ]$ID)),
+  data.frame(Timepoint = "E14", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$E14_centered < 0, ]$ID)),
+  data.frame(Timepoint = "E16", DEG = "Up", Count = length(data_res_sig_A[data_res_sig_A$E16_centered > 0, ]$ID)),
+  data.frame(Timepoint = "E16", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$E16_centered < 0, ]$ID)),
+  data.frame(Timepoint = "E17", DEG = "Up", Count = length(data_res_sig_A[data_res_sig_A$E17_centered > 0, ]$ID)),
+  data.frame(Timepoint = "E17", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$E17_centered < 0, ]$ID)),
+  data.frame(Timepoint = "E18", DEG = "Up", Count =length(data_res_sig_A[data_res_sig_A$E18_centered > 0, ]$ID)),
+  data.frame(Timepoint = "E18", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$E18_centered < 0, ]$ID)),
+  data.frame(Timepoint = "E19", DEG = "Up", Count = length(data_res_sig_A[data_res_sig_A$E19_centered > 0, ]$ID)),
+  data.frame(Timepoint = "E19", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$E19_centered < 0, ]$ID)),
+  data.frame(Timepoint = "P3", DEG = "Up", Count = length(data_res_sig_A[data_res_sig_A$P3_centered > 0, ]$ID)),
+  data.frame(Timepoint = "P3", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$P3_centered < 0, ]$ID)),
+  data.frame(Timepoint = "P7", DEG = "Up", Count = length(data_res_sig_A[data_res_sig_A$P7_centered > 0, ]$ID)),
+  data.frame(Timepoint = "P7", DEG = "Down", Count = length(data_res_sig_A[data_res_sig_A$P7_centered < 0, ]$ID))
+)
+
+ggplot(dep_counts, aes(x = Timepoint, y = Count, fill = DEG, label=Count)) + 
+  # geom_bar(stat = "identity") +
+  geom_col(position = position_dodge2(width = 1.5, preserve = "total"),width = 0.8,alpha=1, col="black") +
+  labs(x = "Timepoint", y = "Number of DEPs") +
+  scale_fill_manual("DEP",values = c("Up" = "green", "Down" = "red")) +
+  labs(title = "Number of DEPs between time points",
+       subtitle="log2FC >0, < 0 & padj < 0.1",
+       x = "Contrasts", y = "Number of DEPs")+
+  theme_half_open(14) +
+  scale_x_discrete(expand = c(0.1,0.1)) +
+  scale_y_continuous(limits = c(0, 500), breaks = c(0, 50, 100, 150, 200, 250))+
+  background_grid() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14, face="bold"), 
+    axis.text.y = element_text( hjust = 1, size = 14), 
+    axis.title = element_text(face = "bold", size=15),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 15, face = "bold", hjust = 0.5, color = "grey"),
+    plot.margin = unit(c(0.5, 1, 0.5, 0.5), "cm"),
+    strip.background = element_blank(),
+    legend.justification = "center",
+    legend.direction = "horizontal",
+    legend.box = "vertical",
+    legend.position = "bottom",
+    legend.text = element_text(size = 14, face = "bold"),
+    legend.title = element_text(size = 16, face = "bold"))+
+  #scale_y_continuous(limits = c(0, max(n_degs) * 1.1), expand = c(0, 0.1)) +
+  # coord_cartesian(clip = "off", ylim = c(0, max(n_degs) * 1.1)) +
+  theme(plot.margin = margin(10, 10, 30, 10, "pt"))+
+  geom_text(size = 5,position = position_dodge2(width = 7, preserve = "total"), 
+            vjust=-1, col="black",fontface="bold")
+
+### WOMIA for GO testing ----
+
+timepoints <- c("E14", "E16", "E17", "E18", "E19", "P3", "P7")
+filtered_data <- lapply(timepoints, function(tp) {
+  filter(data_res_sig_A, !!sym(paste0(tp, "_centered")) > 0)   # >0 --> upregulated ; <0 --> downregulated
+})
+dep_list_up <- lapply(filtered_data, function(df) {
+  df$ID})
+
+names(dep_list_up) <- timepoints
+#names(dep_list_up) <- gsub("\\$", "", names(dep_list_up))
+
+#repeat for downregulated DEPs
+dep_list_down
+
+## DEP MIA  ----
+data_diff_T <- test_diff(imputed_manual_sceMIA,"all")
+dep_T <- add_rejections(data_diff_T, alpha = 0.5)
+data_results_T <- get_results(dep_T)
+data_res_sig_T <- data_results_T %>% filter(significant)
+dim(data_res_sig_T %>% filter(significant)) 
+#write.csv(data_res_sig_T, file="SigProt_MIA.csv")
+ 
+#data_diff_T <- test_diff(imputed_manual_sce,"all")
+#dep_T <- add_rejections(data_diff_T, alpha = 0.5)
+#data_results_T <- get_results(dep_T)
+#data_res_sig_T <- data_results_T %>% filter(significant)
+#dim(data_res_sig_T %>% filter(significant)) #109
+#write.csv(data_res_sig_T, file="SigProt_MIA_allSamples.csv")
+
+### MIA for GO testing ----
+PolyIC <- data_res_sig_T[data_res_sig_T$PolyIC_centered > 0, ]
+w <- data_res_sig_T[data_res_sig_T$w_centered > 0, ]
+PBS <- data_res_sig_T[data_res_sig_T$PBS_centered > 0, ]
+dep_list_Poly <- list('PolyIC'=Poly$ID, 'w'=w$ID, "PBS"=PBS$ID)
+
+w <- data_res_sig_T[data_res_sig_T$PolyIC_vs_w_ratio > 0, ]
+Poly <- data_res_sig_T[data_res_sig_T$PolyIC_vs_w_ratio < 0, ]
+dim(Poly)
+Poly$ID
+
+# Heatmap ----
+filtered <- dep_T[data_results_T$significant, ]
+
+# centered
+rowData(filtered)$mean <- rowMeans(assay(filtered), na.rm = TRUE)
+df <- assay(filtered) - rowData(filtered, use.names = F)$mean
+
+# contrasted
+#dfff <- rowData(filtered, use.names = FALSE) %>% data.frame() %>% column_to_rownames(var = "ID") %>%select(ends_with("_diff"))
+dff <- data_res_sig_T %>% data.frame() %>%dplyr::select(ends_with("_ratio"))
+colnames(dff) <-gsub("_ratio", "", colnames(dff)) %>%
+    gsub("_vs_", " vs ", .)
+row.names(dff) <- data_res_sig_T$ID
+dff <- as.matrix(dff)
+
+dff <- data_res_sig_A %>% data.frame() %>%dplyr::select(ends_with("_centered"))
+colnames(dff) <-gsub("_centered", "", colnames(dff)) %>% gsub("_vs_", " vs ", .)
+row.names(dff) <- data_res_sig_A$ID
+dff <- as.matrix(dff)
+
+#install.packages("colorRamp2")
+#library("colorRamp2")
+col_fun = colorRamp2(c(-2,-1.5,-1,-0.5,0,0.5,1,1.5,2), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+C <- data.frame(Treatment= colnames(dff))
+C$Treatment <- as.factor(C$Treatment)
+ha_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=10, vjust=-5),              
+                              df = C,
+                              col = list(Treatment = c("PBS vs PolyIC"="forestgreen",
+                                                       "w vs PBS" = "blue",
+                                                         "w vs PolyIC"="red")))
+k <- 4
+heat <- Heatmap(dff,
+        clustering_distance_rows = "euclidean", #("euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski", "pearson", "spearman", "kendall")
+       # split = if(kmeans) {df_kmeans$cluster} else {NULL},
+        cluster_rows = T,row_km = k,
+       row_names_gp = gpar(fontface = "bold", fontsize=6),
+       row_title_rot =0,
+        cluster_columns = F,
+        row_names_side = "left",
+       top_annotation = ha_column,
+        column_names_side = "top",
+       column_names_gp = gpar(fontface="bold", fontsize=12),
+       column_names_rot = 45,
+       show_heatmap_legend = F, 
+       col = col_fun,
+       column_title="Treatment-related DEPs",
+       column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+       heatmap_legend_param = list(labels_gp = gpar(fontsize = 10)),
+       heatmap_width = unit(12, "cm"), 
+       heatmap_height = unit(24, "cm"),
+       show_parent_dend_line=T)
+       
+lgd = Legend(title =expression(log[2]~"Fold change"~""), 
+             col_fun = col_fun,direction = "vertical")
+ComplexHeatmap::draw(heat, 
+                     annotation_legend_list = lgd, 
+                     annotation_legend_side = "right")
+
+# Circular Heatmap ----
+#column_od = hclust(dist(t(mat1)))$order
+#circos.heatmap(mat1[, column_od])
+#circos.clear()
+
+circos.par(gap.after = c( 7))
+circos.heatmap(dff,  col = col_fun, show.sector.labels = TRUE,cluster = T,
+               dend.side = "inside", rownames.side = "outside",  
+               rownames.cex = runif(nrow(dff), min = 0.5, max = 0.5))
+circos.track(track.index = get.current.track.index(), panel.fun = function(x, y) {
+  if(CELL_META$sector.numeric.index == 7) { # the last sector
+    cn = colnames(dff)
+    n = length(cn)
+    circos.text(rep(CELL_META$cell.xlim[1], n) + convert_x(1, "mm"), 
+                n - 1:n + 0.5, cn, 
+                cex = 1, adj = c(0, 0.5), facing = "inside")
+  }
+}, bg.border = NA)
+grid.draw(lgd)
+
+circos.clear()
+
+# For Prot and RNAseq
+circos.heatmap.initialize(dff)
+circos.heatmap(dff[, 1], col = col_fun)
+circos.heatmap(dff[, 2], col = col_fun)
+
+
+# GO annotation ----
+ego <- clusterProfiler::compareCluster(geneClusters            = dep_list, #dep_list_Poly #id_list
+                                         OrgDb         = org.Mm.eg.db,
+                                         ont           = "BP",
+                                         pAdjustMethod = "BH",
+                                         pvalueCutoff  = 1,
+                                         qvalueCutoff  = 1, 
+                                         keyType = "SYMBOL",
+                                         readable      = TRUE)
+
+enrichplot::dotplot(ego, showCategory=10,x="Cluster", color="p.adjust",
+                    by = "Count", font.size = 2, size = "Count",
+                    includeAll = F) +   
+  xlab(NULL) + 
+  scale_color_gradientn(colours=rev(c("#b3eebe", "#46bac2", "#371ea3", "#95608e")))+
+  # guide=guide_colorbar(reverse=T, order=1)) +
+  guides(size = guide_legend(override.aes=list(shape=1))) +
+ # scale_y_discrete(guide = guide_axis(n.dodge = 1))+
+  #theme_cleveland()+
+  theme(panel.grid.major.y = element_line(linetype='dotted', color='#808080'),
+        panel.grid.major.x = element_line(linetype='dotted', color='#808080'),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size=15, face="bold"), #,  colour=mod_cor_col),
+        axis.text.y = element_text( size=rel(1.3), angle=0),
+        strip.background = element_blank(),
+        panel.border = element_blank(),
+        panel.spacing.x = unit(0,"line"), 
+        plot.title = element_text(hjust = 0.5,  size = 15, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 15, color = "grey", face="bold"))+
+  labs( #title="GOterms of DEPs between\nPolyI:C, PBS, and untreated samples")
+# labs(title="GOterms of DEPs between\nPolyI:C, PBS, and untreated samples"
+title="GOterms of DEPs between\nctrl and special population")
+#labs(    title="Top GOterms of upregulated DEPs over timeframe")
+# subtitle="against E14 data (both ctrl and special population)"
+
+
+# Single protein ----
+#Eomes: A2AR02
+#SatB2: P03995
+#Smad4: Q64735
+#Itgam: O88491
+#Mapt: Q921F4  
+#C1qbp:Q9Z0S1
+#Cenpv: Q9WUK6
+#Selenos: Q9CPS7
+#Mical1: P47934
+#Ras14: Q8VI24
+p3 <- plot_single(dep_T, proteins = c("P28184"),  type = "centered", plot=T)+
+  scale_colour_manual("Age", values= c(E18= "green4", E19="skyblue2", P3="purple"))+
+  #scale_colour_hue("Age", values= c(E18= "green3", E19="skyblue2", P3="red"))+
+ # scale_shape_manual("Treatment", values= c(w= 19, PBS=0, PolyIC=18))+
+   #scale_colour_manual("Group", values= c(ctrl= "red", special="forestgreen"))+
+  labs(title="Hars2", 
+       x="Treatment")+ #Age
+  scale_y_continuous(limits = c(-4, 4))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, size=12, face="bold"),
+        axis.text.y = element_text( hjust = 1, size=12),
+        legend.justification = "bottom",
+        legend.direction = "vertical",
+        legend.box = "bottom",
+        legend.position = "bottom",
+        legend.text = element_text(size = 14, face = "bold"),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        axis.title = element_blank(),
+        plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank(),
+        strip.text = element_blank())
+  
+ggarrange(p1, p2, labels = c("A", "B"), ncol=2)
+
+library(gtable)
+legend = gtable_filter(ggplotGrob(p1), "guide-box") 
+
+grid.arrange(arrangeGrob(p1 + theme(legend.position="none"), 
+                         p2 + theme(legend.position="none"),
+                         p3 + theme(legend.position="none"),
+                         p4 + theme(legend.position="none"), 
+                         nrow = 1,
+                         top = textGrob("Example proteins", vjust = 1, gp = gpar(fontface = "bold", cex = 1.5)),
+                         left = textGrob(expression(log[2]~"Centered intensity"~"(\u00B195% CI)"), rot = 90, vjust = 1)), 
+             bottom = textGrob("Treatment",vjust = 0.1,hjust = 0.2,gp = gpar(size = 14, fontface = "bold")),  #Age
+             legend, 
+             widths=unit.c(unit(0.9, "npc") - legend$width, legend$width), 
+             nrow=1)
+grid.arrange(arrangeGrob(p1 + theme(legend.position="none"), 
+                         p4 + theme(legend.position="none"), 
+                         nrow = 1,
+                         top = textGrob("Example proteins", vjust = 1, gp = gpar(fontface = "bold", cex = 1.5)),
+                         left = textGrob(expression(log[2]~"Centered intensity"~"(\u00B195% CI)"), rot = 90, vjust = 1)), 
+             bottom = textGrob("Treatment",gp = gpar(size = 14, fontface = "bold")),  #Age
+             legend, 
+             widths=unit.c(unit(0.9, "npc") - legend$width, legend$width), 
+             nrow=1)
+# Integrate with Transcriptomic layer ----
+
+## Percentage plot ----
+
+Q1 <- quantile(rowSums(cD), 0.25)
+Q3 <- quantile(rowSums(cD), 0.75)
+IQR <- Q3 - Q1
+# Calculate upper and lower bounds
+Q4 <- Q3 + 1.5 * IQR
+Q0 <- Q1 - 1.5 * IQR
+
+lowCount <- cD[rowSums(cD) > Q0 & rowSums(cD) <= Q1, ]
+mediCount <- cD[rowSums(cD) > Q1 & rowSums(cD) <= Q3, ]
+highCount <- cD[rowSums(cD) > Q3, ]
+
+# Create labels for each quartile
+quartile_labels <- c("Low Count (<Q1)", "Medium Count (Q1 - Q3)", "High Count (> Q3)")
+proteins_in_low_count <- ProteinCounts[row.names(ProteinCounts) %in% row.names(lowCount), ]
+proteins_in_medium_count <- ProteinCounts[row.names(ProteinCounts) %in% row.names(mediCount), ]
+proteins_in_high_count <- ProteinCounts[row.names(ProteinCounts) %in% row.names(highCount), ]
+dim(proteins_in_high_count)
+plot_data <- data.frame(
+  Quartile = factor(quartile_labels, levels = quartile_labels),
+  Protein_Count = c(nrow(proteins_in_low_count), nrow(proteins_in_medium_count), nrow(proteins_in_high_count))
+)
+total_proteins <- sum(plot_data$Protein_Count)
+plot_data$Percentage <- (plot_data$Protein_Count / total_proteins) * 100
+
+custom_colors <- c("purple", "skyblue", "darkblue")
+
+ggplot(plot_data, aes(x = Quartile, y = Protein_Count, fill = Quartile)) +
+  geom_bar(stat = "identity") +
+  labs(title="Detected proteins by mass spec are\npredominantly high count RNA transcripts", 
+       y="Protein abundance detected in mass spectrometry", x="Quartile")+
+  guides(fill = "none") +theme_minimal() +
+  scale_fill_manual(values = custom_colors) +
+  geom_text(aes(label = paste0(round(Percentage, 2), "%")),
+            position = position_stack(vjust = 0.5), size = 6, fontface="bold",
+            family = "Arial", hjust = 0.5, color = "white") + 
+  theme( axis.text.x = element_text( hjust=1, size=15, face="bold", angle=45), #,  colour=mod_cor_col),
+         axis.text.y = element_text(  angle=0, size=15, face="bold"),
+         legend.justification = "center",
+         legend.direction = "vertical",
+         legend.box = "center",
+         legend.position = "bottom",
+         legend.text = element_text(size = 10, face = "bold"),
+         legend.title = element_text(size = 16, face = "bold"),
+         legend.key = element_rect(colour = NA, fill = NA),
+         axis.title = element_text( size = 16, vjust=2),
+         plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+         plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+         strip.background =  element_blank(),
+         strip.text = element_text(size = 16, face = "bold"))
+
+
+## Quartile plot ----
+quartiles <- quantile(rowSums(cD), probs = c(0, 0.25, 0.5, 0.75, 1))
+Q0 <- quartiles[1]
+Q1 <- quartiles[2]
+Median <- quartiles[3]
+Q3 <- quartiles[4]
+Q4 <- quartiles[5]
+
+# Create the plot
+ggplot(data = data.frame(y = rowSums(cD)), aes(x = "", y = y)) +
+  scale_y_log10() + 
+  geom_boxplot(fill = "lightgrey", color = "darkgrey", alpha = 0.7, coef = 0.5) +
+  geom_text(aes(x = 1.5, y = Q0, label = "Q0"), color = "purple", size = 9, family = "Arial", vjust = 0.1) +
+  geom_text(aes(x = 1.5, y = Q1, label = "Q1"), color = "skyblue", size = 9, family = "Arial", vjust = 0.1) +
+  geom_text(aes(x = 1.5, y = Median, label = "Median"), color = "red", size = 9, family = "Arial", vjust = 0.1) +
+  geom_text(aes(x = 1.5, y = Q3, label = "Q3"), color = "skyblue", size = 9, family = "Arial", vjust = 0.1) +
+  geom_text(aes(x = 1.5, y = Q4, label = "Q4"), color = "darkblue", size = 9, family = "Arial", vjust = 0.1) +
+  geom_point(aes(x = 1, y = rowSums(cD)), color = "black", alpha = 0.5) +
+  labs(title = "RNAseq data with quartiles",
+       x = "",
+       y = "Total Counts (log10)") +
+  coord_flip()+
+  theme_minimal()+ theme( axis.text.x = element_text( hjust=1, size=16, face="bold", angle=0), #,  colour=mod_cor_col),
+                          axis.text.y = element_text(  angle=0, size=18, face="bold"),
+                          legend.justification = "center",
+                          legend.direction = "vertical",
+                          legend.box = "center",
+                          legend.position = "bottom",
+                          legend.text = element_text(size = 10, face = "bold"),
+                          legend.title = element_text(size = 16, face = "bold"),
+                          legend.key = element_rect(colour = NA, fill = NA),
+                          axis.title = element_text( size = 18),
+                          plot.title = element_text(size = 30, face = "bold", hjust=0.5),
+                          plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                          strip.background =  element_blank(),
+                          strip.text = element_text(size = 16, face = "bold"))
+
+## MixOmics ----
+
+ProteinCounts <- data_unique
+uniq_name <- make.names(ProteinCounts$ID, unique = TRUE)
+row.names(ProteinCounts) <- uniq_name
+ProteinCounts$ID <- NULL
+ProteinCounts$name <- NULL
+
+common_samples_RNA <- intersect(colnames(cD), colnames(ProteinCounts))
+common_genes_RNA <- intersect(rownames(cD), rownames(ProteinCounts))
+
+common_samples_Protein <- intersect(colnames(ProteinCounts), colnames(cD))
+common_genes_Protein <- intersect(rownames(ProteinCounts), rownames(cD))
+
+RNA_subset <- cD[common_genes_RNA, common_samples_RNA]
+Protein_subset <- ProteinCounts[common_genes_Protein, common_samples_Protein]
+
+RNA_subset <- RNA_subset[, colnames(Protein_subset)]
+
+# 12 samples incongruent, 249 genes/proteins incongruent
+colnames_only_in_cD <- setdiff(colnames(ProteinCounts), colnames(cD))
+rownames_only_in_cD <- setdiff(rownames(ProteinCounts), rownames(cD))
+
+
+
+unique_labels <- unique(experimentaldesign$label)
+new_df <- data.frame(Label = unique_labels, stringsAsFactors = FALSE)
+new_df <- left_join(new_df, experimentaldesign, by = c("Label" = "label"))
+rownames(new_df) <- new_df$Label
+new_df$Label <- NULL
+new_df_WOMIA <- subset(new_df, MIA == "FALSE") #39
+new_df_MIA <- new_df[new_df$Age %in% c("E18", "E19", "P3"), ] #39
+
+RNA_subset_WOMIA <- RNA_subset[colnames(RNA_subset) %in% rownames(new_df_WOMIA)]
+Protein_subset_WOMIA <- Protein_subset[colnames(Protein_subset) %in% rownames(new_df_WOMIA)]
+RNA_subset_MIA <- RNA_subset[colnames(RNA_subset) %in% rownames(new_df_MIA)]
+Protein_subset_MIA <- Protein_subset[colnames(Protein_subset) %in% rownames(new_df_MIA)]
+
+
+x_WOMIA <- list(RNA=t(RNA_subset_WOMIA), Protein=t(Protein_subset_WOMIA))
+y_WOMIA <- as.factor(new_df_WOMIA$Age)
+x_MIA <- list(RNA=t(RNA_subset_MIA), Protein=t(Protein_subset_MIA))
+y_MIA <- as.factor(new_df_MIA$Age)
+summary(y)
+list.keepX = list(RNA = rep(4090, 2), Protein = rep(4090,2)) #4090 proteins #500
+
+BiocManager::install('aljabadi/mixOmics@ggrepel')
+library('aljabadi/mixOmics@ggrepel')
+MyResult.diablo_WOMIA <- mixOmics::block.splsda(x_WOMIA, y_WOMIA,
+                                                keepX = list.keepX,near.zero.var = TRUE, design = "null") #non-sparse version 
+MyResult.diablo_MIA <- mixOmics::block.splsda(x_MIA, y_MIA, 
+                                              keepX = list.keepX,near.zero.var = TRUE, design = "null") #non-sparse version 
+MyResult.diablo_WOMIA$design
+MyResult.diablo_MIA$design
+
+#cimDiablo(MyResult.diablo_MIA,          margins = c(5, 16),
+#          legend.position = "right",          size.legend = 1,col.cex=1,
+#          color.Y=c("forestgreen", "deepskyblue2", "orchid2"))
+#        #color.Y=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"))
+
+mixOmics::plotIndiv(MyResult.diablo_WOMIA, ellipse = TRUE,  block='weighted.average',   #block = 'average',
+                    legend.title = 'Age', legend.title.pch = 'Group',
+                    ind.names = T,style="ggplot2",#ggplot2
+                    col=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+                    star=T, X.label="Variate 1", Y.label="Variate 2", 
+                    legend=T, cex=c(2.5),comp = c(1, 2),  
+                    main = 'PCAs with DIABLO')
+mixOmics::plotIndiv(MyResult.diablo_MIA, ellipse = TRUE,
+                    legend.title = 'Age', legend.title.pch = 'Group',
+                    ind.names = T,style="ggplot2",#ggplot2
+                    col=c("forestgreen", "deepskyblue2", "orchid2"),
+                    star=T, X.label="Variate 1", Y.label="Variate 2", 
+                    legend=T, cex=c(2.5),comp = c(1, 2),  
+                    main = 'PCAs with DIABLO')
+
+MyResult.diablo_MIA$prop_expl_var
+
+
+gene <- scale(t(RNA_subset_MIA)[,  "Kmt2a"], center = TRUE, scale = TRUE)
+protein <- scale(t(Protein_subset_MIA)[,  "Kmt2a"], center = TRUE, scale = TRUE)
+
+par(mar = c(4, 4, 2, 2))
+boxplot(gene ~
+          new_df_MIA$Treatment, col = c("deepskyblue2","red","forestgreen"),
+       # col = c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+        xlab = 'Age', ylab = 'Expression levels, scaled',
+        par(cex.axis = 1.25),boxwex = 0.75,
+        main = 'Kmt2a mRNA', plot=T)
+boxplot(protein ~ new_df_MIA$Treatment, col = c("deepskyblue2","red","forestgreen"),
+      #  col = c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+              xlab = 'Age', ylab = 'Abundance, scaled',
+               par(cex.axis = 1.25),boxwex = 0.75,
+              main = 'Kmt2a protein',
+              plot=T)
+
+
+#plotIndiv() uses the variates component to plot the samples’ projection into the latent space. 
+#plotVar() does not use loadings, rather the correlation of each feature with the two displayed components
+#Data Integration Analysis for Biomarker discovery using Latent variable approaches for Omics studies. It can also be referred to as Multiblock (s)PLS-DA.
+plotVar(MyResult.diablo_MIA, var.names = c(T, T),
+        legend=TRUE, pch=c(10,10), cutoff = 0.8)
+
+mixOmics::plotArrow(MyResult.diablo_WOMIA, arrow.alpha = 1,  ellipse = TRUE,
+                    arrow.size = 1, arrow.length = 0.1,encircle = T,  encircleAlpha = 1,
+                    ind.names.size = 2.5, legend=T, legend.title.pch = 'Age',
+                    colby = "Age",  shape = "group")+ 
+  scale_color_manual(values=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple")) + 
+  labs(x = 'PC1' , y = 'PC2', title = 'PCA relationship in untreated samples', colour="Age") +  
+  theme_pubr()+ theme( axis.text.x = element_text( hjust=1, size=16, face="bold", angle=0), #,  colour=mod_cor_col),
+                          axis.text.y = element_text(  angle=0, size=18, face="bold"),
+                          legend.justification = "center",
+                          legend.direction = "horizontal",
+                          legend.box = "center",
+                          legend.position = "bottom",
+                          legend.text = element_text(size = 14, face = "bold"),
+                          legend.title = element_text(size = 16, face = "bold"),
+                          legend.key = element_rect(colour = NA, fill = NA),
+                          axis.title = element_text( size = 14),
+                          plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                          strip.background =  element_blank(),
+                          strip.text = element_text(size = 16, face = "bold"),
+                       plot.title = element_text(color = "black", size = 20, face = "bold", hjust = 0.5),
+                       axis.line = element_line(colour = "darkgrey", 
+                                                size = 0.5, linetype = "solid"))
+
+mixOmics::plotArrow(MyResult.diablo_MIA, arrow.alpha = 1,  ellipse = TRUE,
+                    arrow.size = 1, arrow.length = 0.1,encircle = T,  encircleAlpha = 1,
+                    ind.names.size = 2.5, legend=T, legend.title.pch = 'Age',
+                    colby = "Age",  shape = "group")+ 
+  scale_color_manual(values=c("forestgreen", "deepskyblue2", "orchid2")) + 
+  labs(x = 'PC1' , y = 'PC2', title = 'PCA relationship in treated samples', colour="Age") +  
+  theme_pubr()+ theme( axis.text.x = element_text( hjust=1, size=16, face="bold", angle=0), #,  colour=mod_cor_col),
+                       axis.text.y = element_text(  angle=0, size=18, face="bold"),
+                       legend.justification = "center",
+                       legend.direction = "horizontal",
+                       legend.box = "center",
+                       legend.position = "bottom",
+                       legend.text = element_text(size = 14, face = "bold"),
+                       legend.title = element_text(size = 16, face = "bold"),
+                       legend.key = element_rect(colour = NA, fill = NA),
+                       axis.title = element_text( size = 16),
+                       plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                       strip.background =  element_blank(),
+                       strip.text = element_text(size = 16, face = "bold"),
+                       plot.title = element_text(color = "black", size = 20, face = "bold", hjust = 0.5),
+                       axis.line = element_line(colour = "darkgrey", 
+                                                size = 0.5, linetype = "solid"))
+
+plotDiablo(MyResult.diablo_MIA, ncomp = 1,  
+           col=c("forestgreen", "deepskyblue2", "orchid2"))
+           #col=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"))
+ 
+circosPlot(MyResult.diablo_MIA, cutoff = 0.7, line = TRUE, 
+           color.blocks = c('darkorchid', 'deepskyblue2'),
+           color.cor = c("forestgreen", "red"), size.labels = 1.5)
+
+
+columns_to_extract <- c( "samples", "Age", "Group")
+new_data <- new_df_WOMIA[, columns_to_extract]
+RNA_subset_WOMIA$Genes <- row.names(RNA_subset_WOMIA)
+Protein_subset_WOMIA$Genes <- row.names(Protein_subset_WOMIA)
+
+RNA <- melt(RNA_subset_WOMIA)
+Protein <- melt(Protein_subset_WOMIA)
+
+RNA$samples <- RNA$variable
+Protein$samples <- Protein$variable
+
+RNA$variable <- NULL
+RNA <- RNA %>%
+  mutate(unique_identifier = paste(Genes, variable, sep = "_"))
+
+# Merge the new_data dataframe with the RNA dataframe based on the unique identifier
+merged_data_RNA <- new_data %>% left_join(RNA, by = c("samples" = "samples"))
+merged_data_Protein <- new_data %>% left_join(Protein, by = c("samples" = "samples"))
+
+merged_data_RNA$Method <- "RNA"
+merged_data_Protein$Method <- "Protein"
+
+merg <- rbind(merged_data_RNA, merged_data_Protein)
+
+merg$Age<- as.factor(merg$Age) 
+ref_P  <- merg %>%
+  pivot_wider(names_from = Method, values_from = value, values_fill = NA) %>%dplyr::select(-c(variable))
+ref_PP <- ref_P%>%na.omit()
+ref_PPP <- ref_PP[ref_PP$Genes==marker,]
+ggscatter(ref_PPP, x = "Protein", y = "RNA",
+          # add = "reg.line", conf.int = TRUE,
+          # cor.coef = TRUE, cor.method = "spearman",
+          xlab = "Protein", ylab = "RNA",
+          color = "Age",# palette = "Set1",        
+          label = "Genes",  font.label = c(10, "plain"),
+          repel = TRUE, 
+          fullrange = F,                     
+          rug = TRUE) +
+  stat_cor(aes(color = Age, label = paste(..rr.label.., ..p.label.., sep = "~`,`~")), show.legend = FALSE,
+           method = "spearman") +
+  geom_smooth(method = "lm", se = TRUE, formula = y ~ x, aes (color=Age, fill=Age)) +
+  # stat_regline_equation()+
+  # ggpmisc::stat_poly_eq(use_label(c("R2")),label.y=0.95,label.x=0.1)+
+  #  ggpmisc::stat_poly_eq(use_label(c("p")), label.y=0.85, label.x=0.1)+
+  # ggpmisc::stat_poly_eq(use_label(c("eq")),label.y=0.775,label.x=0.1, eq.with.lhs = "log(RQ) ==",  eq.x.rhs="  log(CPM)" )+
+  scale_colour_brewer(palette="Set1", name="Age")+
+  scale_fill_brewer(palette="Set1", name="Age")+
+  # scale_y_continuous(limits=c(-5,7), breaks = seq(-5,7, by = 2))+
+  #  scale_x_continuous(limits=c(-5,12), breaks = seq(-5, 10, by = 2))+
+  facet_wrap(~ Group, ncol = 2)+
+  theme_minimal()  +
+  labs(title="Protein vs RNAseq samples")+
+  # labs(title = ("<span style = 'color: forestgreen;'>pNeuroD+</span> samples"))+ #"Neuronal marker genes")+ #"Microglia marker genes" #Progenitor marker genes
+  geom_hline( aes(yintercept = 0), linetype=2, color="black")+
+  geom_vline( aes(xintercept = 0), linetype=2, color="black")+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  theme_own+
+  theme(plot.title = element_markdown(),
+        panel.spacing.x = unit(0.5, "cm"))
+
