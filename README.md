@@ -7,9 +7,9 @@ PhD project UpperLayerCorticogenesis 2019-2023
 * Proteomics (raw data deposited at PRIDE: PXD046067)
 * RNA seq (raw data deposited at GEO: ...)
 * EMseq
-* 
-* RT-PCR
-* Cytokine measurements
+  
+* RT-PCR (validation of RNAseq)
+* Cytokine measurements (validation of MIA)
 
 
 ## Code and Resources Used 
@@ -18,7 +18,7 @@ PhD project UpperLayerCorticogenesis 2019-2023
 
 
 ## Data set
-The data set compares the upper layer neuronal cohort during physiological and immunostimulated neurogenesis and their respective PBS control:
+The data set compares the upper layer neuronal cohort during physiological neurogenesis and maternal immune stimulated (MIA) neurogenesis:
 * Cell populations:
     * pCAG-Venus (ubiquitous expression)
     * pGlast-dsRed2 (radial glia cell-specific) 
