@@ -3,11 +3,13 @@ PhD project UpperLayerCorticogenesis 2019-2023
 
 ## Project overview
 
-- This repository is part of the PhD project of Tabitha Rücker, which will get published in ...
-* Proteomics
-* RNA seq
-* RT-PCR
+- This repository is part of the PhD project of Tabitha Rücker. It includes a multi-omic dataset of
+* Proteomics (raw data deposited at PRIDE: PXD046067)
+* RNA seq (raw data deposited at GEO: ...)
 * EMseq
+* 
+* RT-PCR
+* Cytokine measurements
 
 
 ## Code and Resources Used 
@@ -16,7 +18,7 @@ PhD project UpperLayerCorticogenesis 2019-2023
 
 
 ## Data set
-Comparison of a specialised upper layer neuronal cohort during physiological and immunostimulated neurogenesis and their respective PBS control:
+The data set compares the upper layer neuronal cohort during physiological and immunostimulated neurogenesis and their respective PBS control:
 * Cell populations:
     * pCAG-Venus (ubiquitous expression)
     * pGlast-dsRed2 (radial glia cell-specific) 
