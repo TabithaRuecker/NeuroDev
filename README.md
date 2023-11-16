@@ -19,7 +19,7 @@ MULTIMODAL PERSPECTIVES ON THE UPPER-LAYER NEUROGENESIS IN THE MURINE CEREBRAL C
 
 ## Data set
 The data set compares the upper layer neuronal cohort during physiological neurogenesis and maternal immune stimulated (MIA) neurogenesis:
-* Cell populations:
+* Sorted cell populations:
     * pCAG-Venus (ubiquitous expression)
     * pGlast-dsRed2 (radial glia cell-specific) 
     * pCAG-tDimer (ubiquitous expression)
