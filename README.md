@@ -5,7 +5,7 @@ MULTIMODAL PERSPECTIVES ON THE UPPER-LAYER NEUROGENESIS IN THE MURINE CEREBRAL C
 
 ## Project overview
 
-- This repository is part of the PhD project of Tabitha Rücker. It includes a multi-omic dataset of
+This repository is part of the PhD project of Tabitha Rücker. It includes a multi-omic dataset of
 * Proteomics (raw data deposited at PRIDE: PXD046067)
 * RNA seq (raw data deposited at GEO: application submitted for accession number at GEO)
 * EMseq (raw data deposited at GEO: application submitted for accession number at GEO)
