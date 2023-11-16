@@ -1,21 +1,21 @@
 # NeuroDev
-PhD project UpperLayerCorticogenesis 2019-2023
+PhD project
+MULTIMODAL PERSPECTIVES ON THE UPPER-LAYER NEUROGENESIS IN THE MURINE CEREBRAL CORTEX
+2019-2023
 
 ## Project overview
 
 - This repository is part of the PhD project of Tabitha Rücker. It includes a multi-omic dataset of
 * Proteomics (raw data deposited at PRIDE: PXD046067)
-* RNA seq (raw data deposited at GEO: ...)
-* EMseq
+* RNA seq (raw data deposited at GEO: application submitted for accession number at GEO)
+* EMseq (raw data deposited at GEO: application submitted for accession number at GEO)
   
 * RT-PCR (validation of RNAseq)
-* Cytokine measurements (validation of MIA)
+* Cytokine measurements (ELISA, validation of MIA)
 
 
 ## Code and Resources Used 
 ** R version 2023.06.0+421  
-**Packages:** tidyverse, DESeq2, ... 
-
 
 ## Data set
 The data set compares the upper layer neuronal cohort during physiological neurogenesis and maternal immune stimulated (MIA) neurogenesis:
@@ -45,13 +45,3 @@ The data set compares the upper layer neuronal cohort during physiological neuro
     * E18
     * E19
     * P3
-
-
-## Data Cleaning
-I used the Galaxy interface for processing of the fasta files after sequencing. I used following specifications of the respective software:
-
-*	...
-
-
-## EDA
-...
