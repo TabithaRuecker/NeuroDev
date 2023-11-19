@@ -1,8 +1,11 @@
 # RNA seq data analysis
-## In this folder, both metaData as well as countData for the RNA-seq analyses are stored.
-The countData will be removed soon, once GEO has confirmed the application and provided an accession number.
-* * countTable_RNAseq.csv is the countData resulting from the preprocessing pipeline (TrimGalore!, STAR, featureCounts)
-  * metaE_Annotation.csv is the matching metaData. Use this table together with the countData to reproduce the analyses presented in the dissertation.
+## In this folder, metaData for the RNA-seq analyses are stored.
+
+ Raw countData are not available yet.
+
+- Once GEO has confirmed the application and provided an accession number, it will be published here.
+- In the meantime, you can contact Tabithe Ruecker to provide the raw data: ruecker.t.m@web.de
+- MetaData for the RNA-seq countData is stored in the MetaData folder of this repository.
 
 - For the DEG analyses focused on the "special" population, the following outputs were created:
   * ConsecutiveAnalysis_special.xlsx
