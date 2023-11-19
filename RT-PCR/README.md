@@ -7,4 +7,4 @@ The data to reproduce the analyses in the dissertation are stored in
   * * Raw and metaData for RT-PCR experiments
 
 - RT-PCR code
-  * encompassing the script to create the plots
+  * encompassing the script to recreate the plots
