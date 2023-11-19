@@ -1,0 +1,150 @@
+setwd("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/EMseq")
+BiocManager::install("methylKit")
+library("methylKit")
+
+file.list <- list(PBS_1="/Volumes/Samsung_T5/seq data PhD/EMseq/MethylDackelFiles_TrimGalore!/MethylDackel_TG_on_M16.txt",                  
+                  PBS_2='/Volumes/Samsung_T5/seq data PhD/EMseq/MethylDackelFiles_TrimGalore!/MethylDackel_TG_on_M19.txt',
+                  PolyIC_1="/Volumes/Samsung_T5/seq data PhD/EMseq/MethylDackelFiles_TrimGalore!/MethylDackel_TG_on_M28.txt",
+                  PolyIC_2="/Volumes/Samsung_T5/seq data PhD/EMseq/MethylDackelFiles_TrimGalore!/MethylDackel_TG_on_M29.txt")
+myobj=methylKit::methRead(file.list,
+               sample.id=list("PBS_1","PBS_2","PolyIC_1","PolyIC_2"),
+               assembly="mm10",
+               treatment=c(0,0,1,1),
+               context="CpG"
+               #dbtype="tabix",   dbdir="/Users/tabitharucker/Desktop/PhDEpiExp/NGS/EMseq"
+)
+
+#head(myobj[[4]])
+methylKit::getMethylationStats(myobj[[1]],plot=TRUE,both.strands=T)  #samples 1-4 , not truely bimodal distribution...
+
+methylKit::getCoverageStats(myobj[[1]],plot=T,both.strands=FALSE) #samples 1-4
+
+filtered.myobj=methylKit::filterByCoverage(myobj,lo.count=10,lo.perc=NULL,
+                                hi.count=NULL,hi.perc=99.9)
+myobj.filt.norm <- methylKit::normalizeCoverage(filtered.myobj, method = "median")
+
+k <- getData(myobj[[1]])
+dim(getData(myobj[[1]]))
+k$CHR <- k$chr
+k$CHR  <- sub("chr", "", k$CHR )
+as.data.frame(table(k$CHR))
+
+meth2=methylKit::unite(myobj, destrand=FALSE)
+percMethylation(meth2, rowids = T)
+
+meth=methylKit::unite(myobj, destrand=FALSE)
+head(meth)
+
+# get percent methylation matrix
+pm=methylKit::percMethylation(meth)
+# calculate standard deviation of CpGs
+sds=matrixStats::rowSds(pm)
+# Visualize the distribution of the per-CpG standard deviation
+# to determine a suitable cutoff
+hist(sds, breaks = 100)
+# keep only CpG with standard deviations larger than 2%
+meth <- meth[sds > 2]
+#hist(meth, breaks = 100)
+
+methylKit::getCorrelation(meth,plot=TRUE)
+
+# This leaves this number of CpG sites
+nrow(meth)
+methylKit::clusterSamples(meth, dist="correlation", method="ward", plot=TRUE)
+pc=methylKit::PCASamples(meth,obj.return = F,screeplot=TRUE, adj.lim=c(2,1))
+methylKit::PCASamples(meth, screeplot = TRUE)
+                      
+perc.meth=percMethylation(meth)
+prcomp(perc.meth)
+plot(prcomp(perc.meth))
+biplot(prcomp(perc.meth, scale = TRUE))
+
+sampleAnnotation=data.frame(batch_id=c("PBS","PBS","PolyIC","PolyIC"),
+                            age=c(18,18,18,18),
+                            batch=c(1,2,1,2))
+as=assocComp(mBase=meth,sampleAnnotation)
+as
+
+myDiff <- methylKit::calculateDiffMeth(meth, overdispersion = "MN",adjust="BH")
+myDiff
+plot(myDiff$meth.diff, -log10(myDiff$qvalue))
+abline(v=0)
+text(myDiff$meth.diff, -log10(myDiff$qvalue),
+     labels = myDiff$chr, pos = 4)
+volc <- getData(myDiff)
+EnhancedVolcano(volc,
+                lab = volc$chr,
+                x = 'meth.diff',
+                y = 'qvalue',
+                pCutoff = 0.75,
+                FCcutoff = 0.5,
+                xlim = c(-40, 40),
+                ylim = c(0, -log10(0.4)),
+pointSize = 1.5,
+labSize = 4,
+title = 'EMseq results',
+subtitle = 'Differential methylation',
+caption = 'FC cutoff, 0.5; p-value cutoff, 0.75',
+legendPosition = "bottom",
+legendLabSize = 14,
+col = c('grey30', 'forestgreen', 'royalblue', 'red2'),
+colAlpha = 0.9,
+drawConnectors = TRUE,
+#hline = c(0.5),
+widthConnectors = 0.5)
+
+diffMethPerChr(myDiff)
+myDiff25p <- getMethylDiff(myDiff,
+                           difference=1,
+                           qvalue=0.5)
+myDiff25p <- myDiff25p[order(myDiff25p$qvalue),]
+
+BiocManager::install("genomation")
+library(genomation)
+myBEDfile=readTranscriptFeatures( "/Volumes/Samsung_T5/seq data PhD/EMseq/mm10.bed.txt")
+
+diffMethPerChr(myDiff, plot = F, qvalue.cutoff = 0.5, meth.cutoff = 1)
+
+install.packages("qqman")
+library(qqman)
+e <- getData(myDiff)
+dim(getData(myDiff))
+e$CHR <- e$chr
+e$CHR  <- sub("chr", "", e$CHR )
+e$BP <- c(1:7878)
+e$SNP <- c(1:7878)
+e$P <- e$pvalue
+E <- e[e$CHR%in%c(1:24),]
+E$CHR <- as.numeric(E$CHR)
+str(E)
+manhattan(E)
+manhattan(subset(E, CHR == 9),  xlim=c(4250, 5250),main = "Chr 9")
+qq(E$P)
+
+promoters=regionCounts(myobj,myBEDfile$promoters)
+promoters[[1]]
+# Differential methylation was assumed with a qvalue cut off of 0.5 (BH adjusted p values), overdispersion was corrected with McCullagh and Nelder (1989) proposed method for Generalized Linear Models
+#Gene parts were annotated to the derived DMR with a mm10 derived BED file. 
+#only meaningful, if at all: within the gene body of Gm10718 chr9:3,023,547-3,025,218
+myDiff25p.anot <- annotateWithGeneParts(target = as(myDiff25p,"GRanges"),
+                                              feature = myBEDfile)
+getMembers(myDiff25p.anot)
+plotTargetAnnotation(myDiff25p.anot, main = "Differential Methylation Annotation")
+
+#DMA
+getSampleID(meth)
+new.meth=reorganize(meth,sample.ids=c("PBS_1","PolyIC_1"),treatment=c(0,1))
+dmf=calculateDiffMeth(new.meth)
+
+#pooled version:
+pooled.meth=pool(meth,sample.ids=c("PBS","PolyIC"))
+dm.pooledf=calculateDiffMeth(pooled.meth)
+
+dm.lr=calculateDiffMeth(meth,overdispersion = "MN",test ="Chisq")
+dm.dss=calculateDiffMethDSS(meth)
+
+all.diff=getMethylDiff(dm.dss,difference=25,qvalue=0.01,type="all")
+hyper=getMethylDiff(dm.pooledf,difference=25,qvalue=0.01,type="hyper") # get hyper-methylated
+hypo=getMethylDiff(dm.pooledf,difference=25,qvalue=0.01,type="hypo") # get hypo-methylated
+
+hyper2=dm.pooledf[dm.pooledf$qvalue < 0.5 & dm.pooledf$meth.diff > 10,]
