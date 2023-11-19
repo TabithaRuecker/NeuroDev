@@ -1,0 +1,224 @@
+Weight <- readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/Cytokine/Cytokine_mouse_ZMNH_with organweight.xlsx", sheet=11)[,c(1,3:5)]
+colnames(Weight) <- c("Mouse number", "Weight of organs", "Treatment", "Organ")
+
+data_summary <- function(x) {
+  m <- mean(x)
+  ymin <- m-sd(x)
+  ymax <- m+sd(x)
+  return(c(y=m,ymin=ymin,ymax=ymax))
+}
+
+ggplot(Weight, aes(x=Organ, y=`Weight of organs`, fill=Treatment, colour=Treatment)) +
+  #geom_boxplot(position=position_dodge(0.8), alpha=0.5)+
+  geom_dotplot(binaxis='y', stackdir='center', 
+               position=position_dodge(0.8), alpha=0.75)+
+  scale_fill_manual(values=c(naïve="green4", PolyIC="red", PBS="blue4"))+
+  scale_colour_manual(values=c(naïve="green4", PolyIC="red", PBS="blue4"))+
+  scale_x_discrete(labels=c(EmbryonicBrain="Embryonic brain", Placenta="Placenta"))+
+  theme_minimal()+theme_own+
+  stat_summary(fun.data=data_summary, color="black", position=position_dodge(0.8))+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  labs( x="Organ", 
+        y= "Weight (mg)")+
+  ggtitle("Weights of MIA organs", 
+          subtitle= "Weighted post freezing")  
+
+Cytokines <- readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/Cytokine/Cytokine_mouse_ZMNH_with organweight.xlsx", sheet=10)
+Cytokines <- Cytokines %>% mutate( `IFNg` = gsub("\\*", "",  `IFNg`),
+                              `IL1b` = gsub("\\*", "",  `IL1b`),
+                              `IL2` = gsub("\\*", "",  `IL2`),
+                              `IL6` = gsub("\\*", "",  `IL6`),
+                              `IL10`  = gsub("\\*", "",  `IL10` ),
+                              `IL17A` = gsub("\\*", "",  `IL17A`),
+                              `MCP1` = gsub("\\*", "",  `MCP1`),
+                              `TNFa` = gsub("\\*", "",  `TNFa`))%>% as.data.frame()
+Cytokines$IFNg<- Cytokines$IFNg%>%as.numeric()
+Cytokines$IL1b<- Cytokines$IL1b%>%as.numeric()
+Cytokines$IL2<- Cytokines$IL2%>%as.numeric()
+Cytokines$IL6<- Cytokines$IL6%>%as.numeric()
+Cytokines$IL10<- Cytokines$IL10%>%as.numeric()
+Cytokines$IL17A<- Cytokines$IL17A%>%as.numeric()
+Cytokines$MCP1<- Cytokines$MCP1%>%as.numeric()
+Cytokines$TNFa<- Cytokines$TNFa%>%as.numeric()
+str(Cytokines)
+str(Cyto)
+view(Cytokines)
+colnames(Cytokines)
+Cyto <- reshape2::melt(Cytokines, id = c('Specimen', 'Treatment', 'Biological replicate', "Mouse number"))
+Cyto$Treatment <- factor(Cyto$Treatment, levels=c("naive", "PBS", "Poly IC"))
+
+my_comparisons <- list( c("naïve", "PBS"), c("naïve", "PolyIC"))
+my_comparisons <- list( c("naïve","PBS", "PolyIC"))
+Cyto$Treatment <- factor(Cyto$Treatment, levels=c("naïve","PBS", "Poly IC"))
+mouse_genes <- c("Ifng", "Il1b", "Il2", "Il6", "IL10", "Il17a", "Ccl2", "Tnf")
+str(Cyto)
+
+ggplot(Cyto, aes(x=Treatment, y=value, fill = Treatment,color = Treatment )) + #group
+  stat_compare_means(aes(label = "p.value"), #after_stat(p.signif)) 
+                     #method="anova",comparisons = my_comparisons,paired=TRUE,
+                      method = "holm", ref.group = "naïve",
+                     bracket.size = 1,
+                     vjust=2, hide.ns = F)+
+  stat_summary(fun="mean", geom="bar", alpha=0.5) +
+  stat_summary(fun.data = mean_cl_normal,  
+               geom = "errorbar")+
+  scale_colour_manual(values=c("green4", "blue4", "red")) + 
+  scale_fill_manual(values=c("green4", "blue4", "red"), labels=c("naïve", "PBS", "PolyIC")) + 
+  facet_wrap(Specimen~variable,scales ="free_y",  nrow=3) + #scales ="free_y",
+  geom_jitter()+
+  labs(x = "Treatment",
+       y = "Cytokine levels [ng/uL]", 
+       title = "Cytokine levels in MIA animals",
+       subtitle = "BioRad cytokine multiplex panel") +
+ # theme(panel.background = element_rect(fill = "white"))+
+  theme(legend.position="bottom")+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  theme_minimal() +
+  theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(strip.text.x = element_text(size = 15, face="bold"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=12.5),
+        axis.text.y = element_text( size=12.5, face="bold"),
+        axis.title =element_text( size = 15,  vjust=2, face="bold"),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom",
+        legend.justification = "center",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank())
+
+my_comparisons <- list(c("Poly IC", "naïve"), c("PBS", "naïve"))
+ggplot(Cyto, aes(x=Treatment, y=value, fill = Treatment, color = Treatment )) +
+  stat_summary(fun="mean", geom="bar", alpha=0.5) +
+  stat_summary(fun.data = mean_cl_normal,  
+               geom = "errorbar")+
+  stat_compare_means(comparisons = my_comparisons, bracket.size = 1,
+                     method = "t.test", # ref.group = "naïve",
+                     vjust=0, hide.ns = TRUE)+
+  facet_wrap(Specimen~variable,scales ="free_y",  nrow=3) + #scales ="free_y",
+  geom_jitter()+
+  labs(x = "Treatment",
+       y = "Cytokine levels [ng/uL]", 
+       title = "Cytokine levels in MIA animals",
+       subtitle = "BioRad cytokine multiplex panel") +
+  scale_colour_manual(values=c("green4", "blue4", "red")) + 
+  scale_fill_manual(values=c("green4", "blue4", "red"), labels=c("naïve", "PBS", "PolyI:C")) +
+  theme(legend.position="bottom")+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  theme_minimal() +
+  theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(strip.text.x = element_text(size = 15, face="bold"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=12.5),
+        axis.text.y = element_text( size=12.5, face="bold"),
+        axis.title =element_text( size = 15,  vjust=2, face="bold"),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom",
+        legend.justification = "center",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank())
+
+
+l <- Cyto[Cyto$variable=="TNFa",]
+ll <- l[l$Specimen=="Serum",c(2,5,6)] #"Placenta" #"Serum"
+compare_means(value ~ Treatment, data = ll,
+              group.by = "variable",p.adjust.method="bonferroni",
+              method = "t.test")
+
+perform_t_tests <- function(data) {
+  pairwise_results <- pairwise.t.test(data$value, data$Treatment, p.adjust.method = "bonferroni")
+  p_values <- pairwise_results$p.value
+  return(p_values)
+}
+
+# Apply the function to all combinations of Specimen and variable
+result_table <- Cyto %>%
+  group_by(Specimen, variable) %>%
+  do(p_values = perform_t_tests(.)) %>%
+  ungroup()
+result_table_pivot <- result_table %>%
+  pivot_wider(names_from = variable, values_from = p_values)
+
+result_table_pivot$IFNg
+plot(3,3)
+
+
+
+# Focus on MIA 
+ddsMIAE18 <- DESeqDataSetFromMatrix(countData = countDataMIA,
+                                    colData = metaMIA,
+                                    design = ~  Treatment) 
+dds_MIA_E18 <- DESeq(ddsMIAE18)
+rld_MIA_E18 <- rlog(dds_MIA_E18,blind=F)
+rld_mat_MIA_E18 <- assay(rld_MIA_E18)
+results_MIA_E18 <- results(dds_MIA_E18, tidy = F, contrast=c("Treatment","PolyIC","w"))
+
+sigMIAE18 <- results_MIA_E18 %>%  data.frame() %>%  
+  tibble::rownames_to_column(var="gene") %>% 
+  as_tibble() %>%   filter(padj<0.05)
+sig_MIA_E18 <- sigMIAE18 %>% filter(log2FoldChange>0)
+
+log_MIA_E18 <- log2((counts(dds_MIA_E18, normalized=TRUE, replaced=FALSE)+.5)) 
+mouse_genes <- c("Ifng", "Il1b", "Il2", "Il6", "Il10", "Il17a", "Ccl2", "Tnf")
+
+
+#log_MIA_E18 <- rld_mat_MIA_E18
+Exp <- t(log_MIA_E18[row.names(log_MIA_E18)%in%mouse_genes,])
+#log_MIA_E18 <- rld_mat_MIA_E18
+log_MIA <- log2((counts(dds_MIA, normalized=TRUE, replaced=FALSE)+.5)) 
+mouse_genes <- c("Dvl1","Fzd8","Tcf7", "Sirt1","Rock2","Celsr1",
+                 "Shank2", "Syngap1", "Grin1", "Pclo", "Cacna1b", "Grip2")
+Exp <- t(log_MIA[row.names(log_MIA)%in%mouse_genes,])
+Expp <- cbind(Exp, metaMIA_2[,c(2,3,6)])
+Expp$samples <- row.names(Expp)
+
+my_comparisons <- list(c("PolyIC", "w"), c("PBS", "w"))
+ggboxplot(Expp, x = "Treatment",
+          y =  mouse_genes, 
+          ylab = "log2 expression",
+          #palette = "Set1",
+          # merge = "flip", #
+          combine=TRUE,
+          # order = c("w", "PBS", "PolyIC"),
+          rotate = FALSE,
+          title = "Cytokines in RNAseq", 
+          color = "Treatment")
+str(CytoRNA)
+CytoRNA <- reshape2::melt(Expp, id = c('samples', 'Treatment', 'Group', 'Age'))
+CytoRNA$Treatment <- factor(CytoRNA$Treatment, levels=c("w", "PBS", "PolyIC"))
+CytoRNA$variable <- factor(CytoRNA$variable, levels=c("Ifng", "Il1b", "Il2", "Il6", "Il10", "Il17a", "Ccl2", "Tnf"))
+CytoRNA$variable <- factor(CytoRNA$variable, levels=mouse_genes)
+
+ggplot(CytoRNA, aes(x=Treatment, y=value, fill = Treatment,color = Treatment )) +
+  facet_wrap(Age~variable,  nrow=4) + #scales ="free_y",
+  stat_summary(fun="mean", geom="bar", alpha=0.5) +
+  stat_summary(fun.data = mean_cl_normal,  
+               geom = "errorbar")+
+  stat_compare_means(comparisons = my_comparisons, bracket.size = 1,
+                     vjust=0, hide.ns = F)+
+  geom_jitter()+
+  labs(x = "Treatment",
+       y = "scaled log2 expression", 
+       title = "Cytokine expression in MIA animals",
+       subtitle = "RNAseq counts") +
+  scale_colour_manual(values=c("green4", "blue4", "red")) + 
+  scale_fill_manual(values=c("green4", "blue4", "red"), labels=c("naïve", "PBS", "PolyI:C")) +
+  theme(legend.position="bottom")+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  theme_minimal() +
+  theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(strip.text.x = element_text(size = 15, face="bold"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=12.5),
+        axis.text.y = element_text( size=12.5, face="bold"),
+        axis.title =element_text( size = 15,  vjust=2, face="bold"),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom",
+        legend.justification = "center",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank())
