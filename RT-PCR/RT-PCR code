@@ -60,7 +60,7 @@ co <- rbind(df_RNAseq_c, df_RNAseq_sp)
 write.csv(co, "RNAseqCounts.csv")
 
 
-# Figure B
+# Figure 18
 meanlog_counts <-  readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq embryonal set/Data tables thesis/RTPCRvsRNAseqCalc.xlsx", sheet = 9)  
 view(ref)
 melted_mean_counts <- melt(meanlog_counts)
@@ -77,9 +77,9 @@ ggscatter(ref2, x = "RT_PCR", y = "RNAseq",
           repel = TRUE, 
           fullrange = F,                     
           rug = TRUE) +
-  stat_cor(aes(color = Age, label = paste(..rr.label.., ..p.label.., sep = "~`,`~")), show.legend = FALSE,
-           method = "spearman", label.x.npc = 0, label.y.npc = 1) +
-  geom_smooth(method = "lm", se = TRUE,alpha=0.25, formula = y ~ x, aes (color=Age, fill=Age)) +
+   stat_cor(aes(color = Age), cor.coef.name = c("rho"), show.legend = FALSE, #label = paste(..r.., ..p.label.., sep = "~`,`~")),
+           method = "spearman", label.x.npc = 0, label.y.npc = 0.99999) +
+ geom_smooth(method = "lm", se = TRUE,alpha=0.25, formula = y ~ x, aes (color=Age, fill=Age)) +
   scale_colour_brewer(palette="Set1", name="Age")+
   scale_fill_brewer(palette="Set1", name="Age")+
   scale_y_continuous(limits=c(-6,4), breaks = seq(-6,4, by = 2))+
@@ -97,7 +97,7 @@ ggscatter(ref2, x = "RT_PCR", y = "RNAseq",
         panel.spacing.y = unit(0.1, "cm"))
 
 
-# Figure A
+# Figure 17
 
 log_counts <-  readxl::read_xlsx("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq embryonal set/Data tables thesis/RTPCRvsRNAseqCalc.xlsx", sheet = 11)  
 
