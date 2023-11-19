@@ -1,0 +1,2997 @@
+Code to reproduce the RNA-seq plots.
+This code is intentionally not well annotated. It will be cleaned for publication in a peer-reviewed journal.
+If parts are missing, just send a request to ruecker.t.m@web.de.
+
+
+setwd("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq")
+
+my_packages <- c("AnnotationDbi", 
+                 "BiocManager",
+                 "circlize", "clusterProfiler","ComplexHeatmap", "cowplot","colorRamp2",
+                 "DEGreport", "dendextend", "DESeq2", "devtools","DEP", "dplyr",
+                 "edgeR", "EnhancedVolcano", "enrichplot",
+                 "flashClust", "factoextra",
+                 "ggchicklet","ggpmisc", "ggh4x", "g3viz","ggplot2","geomtextpath","ggfittext","gganimate", "ggchicklet", "ggforce", "ggtext", "ggpubr", "ggplotify","ggsci","ggrepel","gridExtra",
+                 "lubridate", 
+                 "magrittr", 
+                 "org.Mm.eg.db",
+                 "purrr",  "PCAtools","plotly", "plyr", 
+                 "RColorBrewer", "reshape2", 
+                 "shape", "scales", 
+                 "tidyverse", 
+                 "volcano3D")
+lapply(my_packages, require, character.only = TRUE)  
+
+
+# Prepare countData    -----
+countData <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq/R scripts/countTable_RNAseq.csv")
+## Froys data:
+## countData <- read.csv("/Users/tabitharucker/Desktop/VIP/FroyData.csv")
+## epsilon <- 1 #pseudo-count to avoid problems with log(0)
+
+row.names(countData) <- countData[,1] 
+countData[,1] <- NULL
+countData$symbol <- mapIds(x = org.Mm.eg.db,
+                           keys = row.names(countData),
+                           column = "SYMBOL",
+                           keytype = "ENTREZID",
+                           multiVals = "first")
+countData$symbol[is.na(countData$symbol)] <- row.names(countData)[is.na(countData$symbol)]
+row.names(countData) <- countData$symbol
+countData$symbol <- NULL
+
+# Prepare metaData ----
+meta <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq/R scripts/metaE_Tabitha.csv")
+row.names(meta) <- meta$samples
+# Combine ----
+countDataWOMIA <- countData %>% dplyr::select(!(starts_with(c("E18_MIA","E19_MIA","P3_MIA","E19_c_", "E19_pNeuroD"))))
+metaE <-meta[meta$samples %in% c(colnames(countDataWOMIA)), ] 
+all(rownames(metaE) == colnames(countDataWOMIA))
+
+#For mixOmics comparison
+countDataWOMIA <- countData 
+metaE <-meta[meta$samples %in% c(colnames(countDataWOMIA)), ] 
+all(rownames(metaE) == colnames(countDataWOMIA))
+#For special comparison
+special_countData <- countDataWOMIA[,grep(c("pGlast_"), colnames(countDataWOMIA))]%>%cbind(countDataWOMIA[,grep(c("pNeuroD_"), colnames(countDataWOMIA))])
+metaE_special <-meta[meta$samples %in% c(colnames(special_countData)), ] 
+all(rownames(metaE_special) == colnames(special_countData))
+#For E19 comparison
+H_countData <- countDataWOMIA[,grep(c("E18"), colnames(countDataWOMIA))] %>% cbind(countDataWOMIA[,grep(c("E19"), colnames(countDataWOMIA))])%>%
+  cbind(countDataWOMIA[,grep(c("P3"), colnames(countDataWOMIA))]) %>% cbind(countDataWOMIA[,grep(c("P5"), colnames(countDataWOMIA))])   %>% 
+  cbind(countDataWOMIA[,grep(c("P7"), colnames(countDataWOMIA))])
+metaE_H <-meta[meta$samples %in% c(colnames(H_countData)), ] 
+all(rownames(metaE_H) == colnames(H_countData))
+
+# MIA samples
+countDataMIA <- countData %>% dplyr::select((starts_with(c("E18_MIA","E19_MIA","P3_MIA"))))
+countDataMIA <- countData %>% dplyr::select((starts_with(c("E18","E18_MIA","E19_E_", "E19_P_","E19_MIA","P3","P3_MIA"))))
+metaMIA <-meta[meta$samples %in% c(colnames(countDataMIA)), ] 
+all(rownames(metaMIA) == colnames(countDataMIA))
+
+# Start analysis ----
+
+# Focus on special population
+ddsE <- DESeqDataSetFromMatrix(countData = special_countData,
+                               colData = metaE_special,
+                               design = ~  Age)
+dds_sp <- DESeq(ddsE)
+dds_lrt <- DESeq(ddsE, test="LRT", reduced = ~1)
+rld_E_bF <- rlog(dds_lrt,blind=F)
+rld_mat_bF <- assay(rld_E_bF)
+results <- results(dds_lrt, tidy = F)
+
+sig_res_LRT <- results %>%  data.frame() %>%  
+  tibble::rownames_to_column(var="gene") %>% 
+  as_tibble() %>%   filter(padj<0.01)
+sigLRT_genes <- sig_res_LRT %>%   pull(gene)
+length(sigLRT_genes)
+clustering_sig_genes <- sig_res_LRT %>%  arrange(padj) %>% head(n=2000)
+cluster_rlog <- rld_mat_bF[clustering_sig_genes$gene, ]
+deg_res <- degPatterns(cluster_rlog, metadata = colData(dds_lrt), 
+                       time="Age", col="Group",  minc = 50)
+deg_res$counts
+filtclusters<-deg_res$normalized
+axon <- c("3", "8")
+filtclusters[filtclusters$cluster %in% axon,"cluster"] = 2
+filtclusters[filtclusters$cluster %in% c("4"),"cluster"] = 3
+filtclusters[filtclusters$cluster %in% c("6"),"cluster"] = 4
+filtclusters <- filtclusters[,c("Age", "Group", "genes", "value", "cluster")]
+clusters <- unique(filtclusters$cluster)
+r <- purrr::set_names(purrr::map(clusters, function(clust) {
+  filtclusters[filtclusters$cluster == clust ,] %>% dplyr::pull(genes)
+}), paste0("Cluster ", clusters))
+
+
+# Enriched for Group contrast (how different is ctrl vs special)
+dds_A <- DESeqDataSetFromMatrix(countData = countDataWOMIA,
+                                colData = metaE,
+                                design = ~ Age+Group) #+Age:Group
+dds_lrt_A <- DESeq(dds_A, test="LRT", reduced = ~Age) #Group
+assay(dds_lrt_A)
+rld_E_bF_A <- rlog(dds_lrt_A,blind=F)
+rld_mat_bF_A <- assay(rld_E_bF_A)
+results_A<- results(dds_lrt_A, tidy = F)
+sig_res_LRT_A <- results_A %>%  data.frame() %>%  
+  tibble::rownames_to_column(var="gene") %>% 
+  as_tibble() %>%   filter(padj<0.01)
+sigLRT_genes <- sig_res_LRT_A %>%   pull(gene)
+length(sigLRT_genes)
+clustering_sig_genes_A <- sig_res_LRT_A %>%  arrange(padj) %>% head(n=2000)
+cluster_rlog_A <- rld_mat_bF_A[clustering_sig_genes_A$gene, ]
+deg_res_A <- degPatterns(cluster_rlog_A, metadata = colData(dds_lrt_A), 
+                         time="Age", col="Group",  minc = 50)
+filtclusters_Age<-deg_res_A$normalized
+deg1 <- c("1", "3")
+deg2 <- c("2", "4")
+deg3 <- c("5", "6")
+filtclusters_Age[filtclusters_Age$cluster %in% c("8"),"cluster"] = 7
+filtclusters_Age[filtclusters_Age$cluster %in% c("9"),"cluster"] = 8
+filtclusters_Age[filtclusters_Age$cluster %in% deg1,"cluster"] = 1
+filtclusters_Age[filtclusters_Age$cluster %in% deg2,"cluster"] = 2
+filtclusters_Age[filtclusters_Age$cluster %in% deg3,"cluster"] = 3
+filtclusters_Age[filtclusters_Age$cluster %in% c("7"),"cluster"] = 4
+filtclusters_Age[filtclusters_Age$cluster %in% c("8"),"cluster"] = 5
+levels(as.factor(filtclusters_Age$cluster))
+filtclusters_Age <- filtclusters_Age[,c("Age", "Group", "genes", "value", "cluster")]
+clusters <- unique(filtclusters_Age$cluster)
+r <- purrr::set_names(purrr::map(clusters, function(clust) {
+  filtclusters_Age[filtclusters_Age$cluster == clust ,] %>% dplyr::pull(genes)
+}), paste0("Cluster ", clusters))
+#for EvGO: c(5,3,4,2,1)
+
+# Enriched for Age contrast (what is similarly expressed in both populations over time)
+dds_G <- DESeqDataSetFromMatrix(countData = countDataWOMIA,
+                                colData = metaE,
+                                design = ~ Group+Age) 
+dds_lrt_G <- DESeq(dds_G, test="LRT", reduced = ~Group) 
+rld_E_bF_G <- rlog(dds_lrt_G,blind=F)
+rld_mat_bF_G <- assay(rld_E_bF_G)
+results_G <- results(dds_lrt_G, tidy = F)
+sig_res_LRT_G <- results_G %>%  data.frame() %>% 
+  tibble::rownames_to_column(var="gene") %>% as_tibble() %>%   filter(padj<0.01)
+sigLRT_genes <- sig_res_LRT_G %>% pull(gene)
+length(sigLRT_genes)
+clustering_sig_genes_G <- sig_res_LRT_G %>%  arrange(padj) %>% head(n=2000)
+cluster_rlog_G <- rld_mat_bF_G[clustering_sig_genes_G$gene, ]
+deg_res_G <- degPatterns(cluster_rlog_G, metadata = colData(dds_lrt_G), 
+                         time="Age", col="Group",  minc = 50)
+filtclusters_Group<-deg_res_G$normalized
+deg <- c("3", "4")
+filtclusters_Group[filtclusters_Group$cluster %in% deg,"cluster"] = 3
+filtclusters_Group[filtclusters_Group$cluster %in% c("5"),"cluster"] = 4
+filtclusters_Group[filtclusters_Group$cluster %in% c("6"),"cluster"] = 5
+filtclusters_Group[filtclusters_Group$cluster %in% c("7"),"cluster"] = 6
+filtclusters_Group <- filtclusters_Group[,c("Age", "Group", "genes", "value", "cluster", "samples")]
+clusters <- unique(filtclusters_Group$cluster)
+r <- purrr::set_names(purrr::map(clusters, function(clust) {
+  filtclusters_Group[filtclusters_Group$cluster == clust ,] %>% dplyr::pull(genes)
+}), paste0("Cluster ", clusters))
+#for EvGO: c(1,5,6,4,2,3)
+
+# for E19 comparison
+countDataWOMIA <- countData %>% dplyr::select(!(starts_with(c("E18_MIA","E19_MIA","P3_MIA"))))
+countDataE19 <- countDataWOMIA %>% dplyr::select((starts_with(c("E18","E19"))))
+countDataE19 <- countDataWOMIA %>% dplyr::select((starts_with(c("E19"))))
+metaE19 <-meta[meta$samples %in% c(colnames(countDataE19)), ] 
+all(rownames(metaE19) == colnames(countDataE19))
+
+ddsE19 <- DESeqDataSetFromMatrix(countData = countDataWOMIA,
+                                 colData = metaE,
+                                 design = ~  Age)
+dds_E19 <- DESeq(ddsE19)
+rld_E19 <- rlog(dds_E19,blind=F)
+rld_mat_E19 <- assay(rld_E19)
+results_E19_E <- results(dds_E19, tidy = F, contrast=c("Age","E19_E","E18"))
+results_E19_P <- results(dds_E19, tidy = F, contrast=c("Age","E19_P","E18"))
+
+sig_E19_E <- results_E19_E %>%  data.frame() %>%  
+  tibble::rownames_to_column(var="gene") %>% 
+  as_tibble() %>%   filter(padj<0.01)
+sig_E19_P <- results_E19_P %>%  data.frame() %>%  
+  tibble::rownames_to_column(var="gene") %>% 
+  as_tibble() %>%   filter(padj<0.01)
+sigg_19_E <- sig_E19_E %>% filter(log2FoldChange>0)
+sigg_19_P <- sig_E19_P %>% filter(log2FoldChange>0)
+
+ddsE19 <- DESeqDataSetFromMatrix(countData = countDataE19,
+                                 colData = metaE19,
+                                 design = ~  Harvest.mode)
+ddsH <- DESeqDataSetFromMatrix(countData = H_countData,
+                               colData = metaE_H,
+                               design = ~  Harvest.mode)
+dds_H <- DESeq(ddsH)
+rld_H <- rlog(dds_H,blind=F)
+rld_mat_H <- assay(rld_H)
+results_E19_E <- results(dds_H, tidy = F, contrast=c("Age","E19_E","E18"))
+results_E19_P <- results(dds_H, tidy = F, contrast=c("Age","E19_P","E18"))
+results_H <- results(dds_H, tidy = T, contrast=c("Harvest.mode","ex_utero","in_utero"))
+
+H_sig <- results_H %>%  data.frame() %>%  
+  tibble::rownames_to_column(var="gene") %>% 
+  as_tibble() %>%   filter(padj<0.01)
+summary(results_H)
+write.csv(H_sig, "Birth_DEGs.csv")
+
+
+## Figure 8 ----
+
+a <- ggplot(data.frame( mean = rowMeans(assay(dds_lrt_G, normalized=T)), var  = rowVars( assay(dds_lrt_G, normalized=T))),
+            aes(x =log(mean+1), y = sqrt(var))) + #log(mean+1) to see abline
+  #geom_point() + 
+  geom_hex(bins  = 50) + 
+  #geom_abline(slope = c(1, 2), intercept = c(0, -1),color = c("forestgreen", "red")) +
+  geom_abline(slope = c(1), intercept = c(0),color = c("forestgreen")) +
+  #stat_function(fun=f, colour="red")+
+  #stat_function(fun=g, colour="turquoise")+
+  geom_smooth(method="glm.nb",formula = y~ x+I(x^2),family="binomial", color="white", se=TRUE)+
+  #coord_fixed() + 
+  theme(legend.position = "none") +
+  scale_fill_gradient( low="blue", high="darkred",
+                       limits=c(0,1750)) + 
+  scale_y_continuous(limits = c(0, 20))+
+  theme_minimal()+
+  labs(title="Filtered counts normalised to library size",
+       subtitle="Negative binomial model\n is superior to the Poisson model",
+       y = expression(sqrt(variance)),
+       x=expression(log[2](mu+1)))+
+  theme(legend.direction="vertical",
+        legend.position = c(.25, .95),
+        legend.justification = c("right", "top"),
+        legend.box.just = "left",
+        legend.background = element_rect(fill="gray90", size=.5, linetype="dotted"),
+        plot.margin = margin(2,1,2,1, "cm"),
+        axis.text = element_text(size = 14),
+        axis.title  = element_text(size = 16, face = "bold"),
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 20, face = "bold"),
+        plot.title = element_text(hjust = 0.4,  size = 22, face = "bold", vjust=5),
+        plot.subtitle = element_text(hjust = 0.4,  size = 16, color="grey", vjust=5))+
+  annotate("text", x = 3, y = 4, parse = TRUE,size=4,
+           label = "variance== mu ", color="forestgreen", fontface="bold")+
+  annotate("text", x = 2.9, y =15, parse = TRUE,size=4,
+           label = "variance == mu+alpha(mu^2)",color="white", fontface="bold")
+
+
+rdds$gg <- meanSdPlot(assay(rld_E_bF_G), plot = T, rank=T)
+
+
+library(MASS)
+#rdds$gg +
+b <- ggplot(data.frame( mean = rowMeans(assay(rld_E_bF_G, normalized=T)), var  = rowVars( assay(rld_E_bF_G, normalized=T))),
+            aes(x =rank(mean), y = sqrt(var))) + #log(mean+1) to see abline
+  scale_fill_gradient( low="blue", high="darkred",
+                       limits=c(0,1750)) + 
+  scale_y_continuous(limits = c(0, 7))+
+  # scale_x_continuous(limits = c(0, 25000))+
+  geom_hex(bins  = 50)+
+  geom_smooth(colour="red", method = "gam")+
+  geom_smooth(method="glm.nb",formula = y~ x+I(x^2),family="binomial",color="white", se=TRUE)+
+  theme_minimal()+
+  labs(title="rlog transformation",
+       subtitle="rlog(dds, blind=F) counts\n normalised to library size",
+       y = expression(sqrt(variance)),
+       x=c(label=expression(rank(mu))))+
+  #scale_x_continuous(labels = label_number(prefix = "", suffix = "K", scale = 1e-3, big.mark = ","))+
+  theme(legend.direction="vertical",
+        legend.position = c(0.92, .95),
+        legend.justification = c("right", "top"),
+        legend.box.just = "left",
+        legend.background = element_rect(fill="gray90", size=.5, linetype="dotted"),
+        plot.margin = margin(2, 1, 2, 1, "cm"),
+        axis.text = element_text(size = 14),
+        axis.title  = element_text(size = 16, face = "bold"),
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 20, face = "bold"),
+        plot.title = element_text(hjust = 0.4,  size = 22, face = "bold", vjust=5),
+        plot.subtitle = element_text(hjust = 0.4,  size = 16, color="grey", vjust=5))+
+  annotate("text", x = 17000, y =1.2, parse = TRUE, size=4,
+           label = "variance == s(mu, bs = cs)", color="red", fontface="bold")+
+  annotate("text", x = 20000, y =0.9, parse = TRUE,size=4,
+           label = "variance == mu+alpha(mu^2)", color="white", fontface="bold")
+
+
+gridExtra::grid.arrange( a,b, ncol = 2)
+
+# PCA/ Biplot ----
+## Figure 13 ---- 
+head(rld_mat)
+r <- rld_mat_E %>% as.data.frame() %>% dplyr::select(!(starts_with(c("E19_c", "E19_pN"))))
+met <-meta[meta$X %in% c(colnames(r)), ] 
+head(rld_mat_bF_A)
+p_E<- PCAtools::pca(rld_mat_bF_G, metadata = metaE, removeVar = 0.5)
+p_MIA<- PCAtools::pca(rld_mat_MIA, metadata = metaE, removeVar = 0.5)
+p_E<- PCAtools::pca(rld_mat_sp_bF, metadata = metaE_special, removeVar = 0.5)
+row.names(p_E$loadings[1:10,1:10])
+plotloadings(p_E, labSize = 3)
+
+a <- PCAtools::biplot(p_E, x = "PC1",
+                      y = "PC2",boxedLabels=T, 
+                      drawConnectors=T,max.overlaps = 50,
+                      showLoadings = T,  ntopLoadings=10, boxedLoadingsNames = TRUE,
+                      fillBoxedLoadings = alpha("white"),lab=NULL, #lab=as.factor(metaE$Age), #lab=NULL
+                      labSize = 2, selectLab =NULL,   #selectLab= c("E14")
+                      # colby = "Age",  shape = "Group", size=5,
+                      colby = "Age",  shape = "Group", size=4,
+                      encircle = T,  encircleAlpha = 1/10)+  
+  theme_bw() +
+  #ggtitle(label = "DEGs across timeframe", 
+  #        subtitle = "PCA of rld transformed counts (by DESeq2, with LRT) with scaled eigenvectors")+
+  ggtitle(label = "Time frame in reduced dimension",
+          subtitle = "PCA with rld transformed counts by DESeq2")+ 
+  theme(strip.background = element_blank(),
+        panel.border = element_blank(),
+        panel.spacing.x = unit(0,"line"), 
+        plot.title = element_text(hjust = 0.5,  size = 24, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 18, color = "grey", face="bold"),
+        axis.title.x = element_text(face = "bold",  size=18),
+        axis.title.y = element_text( face = "bold",  size=18),
+        axis.text = element_text(  size=12),
+        plot.margin = unit(c(1,0,0.5,1), "cm"),
+        legend.title = element_text(face = "bold",  size=18),
+        legend.text = element_text(size=16))+
+  guides(colour = guide_legend(ncol = 1, override.aes = list(size = 10)))
+
+
+# Top Genes ----
+## Figure 13B ---- 
+## Figure 15 ----
+#Here, you’ll take the counts() of the dds object, normalizing it, without outlier replacement. You’ll add a half count to it, because the next thing you’ll do is log2() it, and you don’t want any -Infs. So now you have a log-transformed normalized count matrix. Now, transpose that matrix so the sample names are the row.names.
+#You’ll now merge that thing with the colData(dds), where the sample names are also the row.names. You’ll now have a really wide data.frame with a single row for each sample, followed by all the colData, followed by a column for each of the genes of interest.
+#Gather that up again so you now have one row per sample per gene, with all the sample info, and that gene’s expression.
+
+res <- results(dds_lrt, tidy=TRUE) %>% #, contrast=c("Age", "P7", "E14")
+  arrange(padj, baseMean) %>%     #arrange(padj, pvalue) %>%
+  tbl_df()
+
+res2 <- res[1:500,]
+res3 <- res2[order(res2$log2FoldChange, decreasing = F), ]
+res4 <- res2[order(res2$log2FoldChange, decreasing = T), ]
+
+goi <- c(res3$row[1:10],res4$row[1:10])
+stopifnot(all(goi %in% names(dds_lrt)))
+tcounts <- t(log2((counts(dds_lrt[goi, ], 
+                          normalized=TRUE, replaced=FALSE)+.5))) %>%
+  merge(colData(dds_lrt), ., by="row.names") %>%
+  gather(gene, expression, (ncol(.)-length(goi)+1):ncol(.))
+tcounts$gene <- factor(tcounts$gene, levels=goi)
+ggplot(tcounts, aes(Age, expression, fill=Age, colour=Age)) + 
+  geom_boxplot(alpha=0.25) + 
+  geom_jitter()+
+  facet_wrap(~gene,  nrow=2) +
+  scale_colour_hue( name = "Age")  + #values=c("ctrl"="red", "special"="forestgreen")
+  scale_fill_hue( name = "Age") +
+  labs(x="Age", 
+       y="Expression (log2 normalized counts)", 
+       fill="Population", 
+       title="Top gene expression")+
+  theme_light()+
+  guides(alpha= "none", fill=guide_legend(override.aes=list(color=NA)))+
+  theme(legend.position = "right",
+        legend.justification = "center",
+        legend.direction = "vertical",
+        legend.box = "vertical",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        axis.text.x = element_text(angle = 45, hjust = 1, size=12),
+        axis.title = element_text(face = "bold", size = 14),
+        plot.title = element_text(size = 18, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 15, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank(),
+        panel.spacing.y = unit(1, "lines"),
+        plot.margin=unit(c(0.5,0.5,0.75,0.1),"cm"),
+        strip.text.x = element_textbox(
+          size = 12, face="bold",
+          color = "white", fill = "forestgreen", 
+          halign = 0.5, linetype = 1, r = unit(5, "pt"), width = unit(1, "npc"),
+          padding = margin(3, 0, 3, 0), margin = margin(3, 3, 3, 3)))
+
+
+# Volcanos ----
+## Figure 14 ---
+## used also in STAR protocol 
+neuronal <- c("Mapt", "Cux1", "Nrgn", "Satb2", "Grin1", "Grin2b",  "Otof", "Pou3f2", "Vamp2","Vamp1", "Tuba1a",  "Unc5d","Bcan", "Timp2")
+progenitor <- c("Nes", "Sox2", "Hes1","Notch1","Arx","Vim","Pax6","Ascl1","Neurog2", "Rnd2","Fezf2", "Neurog1" ,"Eomes", "Hes5")
+t <- rbind(neuronal = neuronal, progenitor = progenitor)
+normalized_counts <- counts(dds_lrt, normalized=T)%>%log2()%>%as.data.frame()
+pf <- subset(normalized_counts, row.names(normalized_counts) %in% unlist(t[1,]) | row.names(normalized_counts) %in% unlist(t[2,]))
+pf$vector_name = ifelse(row.names(pf) %in% unlist(t[1,]), "neuronal marker", ifelse(row.names(pf) %in% unlist(t[2,]), "neuronal progenitor marker", NA))
+#pf <- normalized_counts[row.names(normalized_counts)%in%h,] %>%as.data.frame()  #c("Eomes", "Neurod1")
+pf_select <- pf %>% dplyr::select((starts_with(c("E14","E18","vector"))))
+pf_select <- pf_select %>% dplyr::select((ends_with(c("_1","_2","_3","_name"))))
+#pf <- normalized_counts[row.names(normalized_counts)%in%i,] %>%as.data.frame()  #c("Eomes", "Neurod1")
+
+
+pf_select$symbol <- row.names(pf_select)
+df_lingg <- melt(pf_select, id.vars=c("symbol", "vector_name"))
+df_lingg$value[df_lingg$value == "-Inf"] <- "0"  
+metaE$variable<- metaE$X
+merged_df <- merge(metaE, df_lingg, by = "variable")
+merged_df$value <- round(as.numeric(merged_df$value), 2)
+merged_df$scores <- scale(merged_df$value, scale = F)
+#library(reshape2)
+df_matrix <- dcast(merged_df, symbol ~ variable, value.var = "scores")%>% as.data.frame()
+rownames(df_matrix) <- df_matrix$symbol
+df_matrix$symbol <- NULL
+subs <- subset(df_matrix, row.names(df_matrix) %in% unlist(t[1,]) | row.names(df_matrix) %in% unlist(t[2,]))
+subs$group = ifelse(row.names(subs) %in% unlist(t[1,]), "neuronal marker", ifelse(row.names(subs) %in% unlist(t[2,]), "neuronal progenitor marker", NA))
+
+
+pf_select <- pf %>% dplyr::select((starts_with(c("E14_pGlast","E18_pNeuroD"))))
+pf_select <- pf_select %>% dplyr::select((ends_with(c("_1","_2","_3"))))
+pf_select$symbol <- row.names(pf_select)
+df_lingg <- melt(pf_select, id.vars=c("symbol"))
+df_lingg$value[df_lingg$value == "-Inf"] <- "0"  
+metaE$variable<- metaE$X
+merged_df <- merge(metaE, df_lingg, by = "variable")
+merged_df$value <- round(as.numeric(merged_df$value), 2)
+merged_df$scores <- scale(merged_df$value, scale = F)
+df_matrix_pGvspN <- dcast(merged_df, symbol ~ variable, value.var = "scores")%>% as.data.frame()
+rownames(df_matrix_pGvspN) <- df_matrix_pGvspN$symbol
+df_matrix_pGvspN$symbol <- NULL
+subs_pGvspN <- subset(df_matrix_pGvspN, row.names(df_matrix_pGvspN) %in% unlist(t[1,]) | row.names(df_matrix_pGvspN) %in% unlist(t[2,]))
+subs_pGvspN$group = ifelse(row.names(subs_pGvspN) %in% unlist(t[1,]), "neuronal marker", ifelse(row.names(subs_pGvspN) %in% unlist(t[2,]), "neuronal progenitor marker", NA))
+
+df_matri <- cbind(df_matrix,df_matrix_pGvspN)
+
+df$number <- as.numeric(df$number)
+df$Group <- factor(df$Group, levels=c("ctrl","special"))
+df$Colour <- factor(df$Colour, levels=rev(c("#FF0000", "#66CC33")))
+df$symbol <- factor(df$symbol, levels=h)
+df$Age <- as.factor(df$Age)
+
+#df$symbol <- factor(df$symbol, levels=c("Slc6a6", "Ctsd", "Lpl", "Dst", "Ctsb", "Creg1"))
+df$number <- as.numeric(df$Age)
+str(df)
+results <- as.data.frame(results)
+results$symbol<- row.names(results)
+p <- results[results$symbol%in%h,]
+#results[results$symbol%in%c("Igf2bp1", "Igf2bp2", "Dtna", "Fezf2","Gpr37l1", "Qpct"),]
+d <- df
+s <- merge(d, as.data.frame(p), by.x = "symbol", by.y = 0)
+
+s%>% 
+  ggplot(aes(x=Age,y=value, 
+             group=Colour))+
+  geom_point(position=position_jitterdodge(),alpha=0.9, size=2, aes(size = Group,color=Colour, shape=Group)) +
+  facet_wrap(symbol~., scales = "fixed",ncol=2,  strip.position = 'top')+ # shape=Group
+  geom_violin(aes(x=number, y=value, group=Age, fill=Age),alpha = 0.3, 
+              color = NA,outlier.size = 0, outlier.shape = NA)+
+  #, margins=T
+  #facet_grid(symbol~., scales = "free_y")+
+  #geom_boxplot(aes(x=number, y=value, group=number), alpha=0.3, position = position_dodge(width=1)) + 
+  #labs(fill = 'white') + 
+  theme_minimal(base_size = 16)+
+  geom_smooth(data=df, aes(x=as.numeric(Age),y=value, color=Colour),   #fill=Group     
+              se=F, position="identity",method="loess",  show_guide = F,size=1,lwd=0.9, span=0.4)+  
+  scale_x_discrete(labels=c(levels(as.factor(df$Age))),  name="Age")+
+  #scale_color_manual(values=(c( "#66CC33","#FF0000")), name="Group", labels=c("ctrl", "special"))+
+  scale_color_manual(values=c("green3", "red"), name="Construct", labels=c("ctrl", "special"))+
+  theme(strip.background = element_blank(),
+        panel.border = element_blank(),
+        panel.spacing.x = unit(2, "lines"),
+        legend.position = "right",
+        legend.direction="vertical",
+        axis.text.x = element_text(size = 14, angle=45),
+        axis.title.x  = element_text(size = 16, face = "bold"),
+        legend.title = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14),
+        strip.text = element_text(size = 20, face = "bold"),
+        plot.title = element_text(hjust = 0.3,  size = 30, face = "bold"))+
+  #guides(color = F, size = FALSE, fill=F)+
+  #theme(legend.text = element_blank())+
+  #labs(title = "Pull-down genes")+ 
+  #labs(title = "Top DEGs across group")+
+  labs(title = "Top DEGs across constructs AND time frame")+
+  ylab("Normalised gene expression by size factor\n(log2 abundance)")+
+  guides(fill = guide_legend(override.aes = list(color = "white")))+
+  geom_label(data=s, aes(label = paste0("padj= ",signif(padj,digits=3),"\nlFC= ",signif(log2FoldChange,digits=3)),
+                         x=2, y=15),
+             size = 3, fill="white", color="black",#face="bold",
+             check_overlap = TRUE) 
+
+
+geom_text(aes(label = paste0("(", resp, ")")), nudge_y = -0.25) + 
+  
+  #
+  #pNvspG = df_matrix[,c(4:6, 10:12)]
+  colnames(df_matrix) <- c("pCAG-Venus_1","pCAG-Venus_2","pCAG-Venus_3",
+                           "pGlast-dsRed2/\n   pCAG-Venus_1","pGlast-dsRed2/\n   pCAG-Venus_2","pGlast-dsRed2/\n   pCAG-Venus_3",
+                           "pCAG-tDimer_1", "pCAG-tDimer_2","pCAG-tDimer_3",
+                           "pNeuroD-EGFP/\n   pCAG-tDimer_1", "pNeuroD-EGFP/\n   pCAG-tDimer_2", "pNeuroD-EGFP/\n   pCAG-tDimer_3")
+colnames(df_matri) <- c("pCAG-Venus_1","pCAG-Venus_2","pCAG-Venus_3",
+                        "pGlast-dsRed2/\n   pCAG-Venus_1","pGlast-dsRed2/\n   pCAG-Venus_2","pGlast-dsRed2/\n   pCAG-Venus_3",
+                        "pCAG-tDimer_1", "pCAG-tDimer_2","pCAG-tDimer_3",
+                        "pNeuroD-EGFP/\n   pCAG-tDimer_1", "pNeuroD-EGFP/\n   pCAG-tDimer_2", "pNeuroD-EGFP/\n   pCAG-tDimer_3",
+                        "pGlast-dsRed2/\n   pCAG-Venus_1","pGlast-dsRed2/\n   pCAG-Venus_2","pGlast-dsRed2/\n   pCAG-Venus_3",
+                        "pNeuroD-EGFP/\n   pCAG-tDimer_1", "pNeuroD-EGFP/\n   pCAG-tDimer_2", "pNeuroD-EGFP/\n   pCAG-tDimer_3")
+colnames(df_matri) <- c("pCAG-Venus_1","pCAG-Venus_2","pCAG-Venus_3",
+                        "pGlast-dsRed2_1","pGlast-dsRed2_2","pGlast-dsRed2_3",
+                        "pCAG-tDimer_1", "pCAG-tDimer_2","pCAG-tDimer_3",
+                        "pNeuroD-EGFP_1", "pNeuroD-EGFP_2", "pNeuroD-EGFP_3",
+                        "pGlast-dsRed2_1","pGlast-dsRed2_2","pGlast-dsRed2_3",
+                        "pNeuroD-EGFP_1", "pNeuroD-EGFP_2", "pNeuroD-EGFP_3")
+colnames(df_matri) <- c("pCAG-Venus_1","pCAG-Venus_2","pCAG-Venus_3","pCAG-Venus_4","pCAG-Venus_5","pCAG-Venus_6",
+                        "pGlast-dsRed2_1","pGlast-dsRed2_2","pGlast-dsRed2_3","pGlast-dsRed2_4","pGlast-dsRed2_5","pGlast-dsRed2_6",
+                        "pCAG-tDimer_1", "pCAG-tDimer_2","pCAG-tDimer_3","pCAG-tDimer_4", "pCAG-tDimer_5","pCAG-tDimer_6",
+                        "pNeuroD-EGFP_1", "pNeuroD-EGFP_2", "pNeuroD-EGFP_3","pNeuroD-EGFP_4", "pNeuroD-EGFP_5", "pNeuroD-EGFP_6",
+                        "pGlast-dsRed2_1","pGlast-dsRed2_2","pGlast-dsRed2_3","pGlast-dsRed2_4","pGlast-dsRed2_5","pGlast-dsRed2_6",
+                        "pNeuroD-EGFP_1", "pNeuroD-EGFP_2", "pNeuroD-EGFP_3", "pNeuroD-EGFP_4", "pNeuroD-EGFP_5", "pNeuroD-EGFP_6")
+
+C <- data.frame(Construct=rep(c("1: pCAG-Venus","2: pGlast-dsRed2/pCAG-Venus","3: pCAG-tDimer", "4: pNeuroD-EGFP/pCAG-tDimer"), each=3))
+C <- data.frame(Construct=rep(c("1: pCAG-Venus","2: pGlast-dsRed2/pCAG-Venus","3: pCAG-tDimer", "4: pNeuroD-EGFP/pCAG-tDimer", "5: pGlast-dsRed2/pCAG-Venus", "6: pNeuroD-EGFP/pCAG-tDimer"), each=3))
+C <- data.frame(Construct=rep(c("1: pCAG-Venus","2: pGlast-dsRed2","3: pCAG-tDimer", "4: pNeuroD-EGFP", "5: pGlast-dsRed2", "6: pNeuroD-EGFP"), each=3))
+C <- data.frame(Construct=rep(c("1: pGlast-dsRed2", "2: pNeuroD-EGFP"), each=3))
+C <- data.frame(Construct=rep(c("1: pGlast-dsRed2", "2: pNeuroD-EGFP"), each=6))
+C <- data.frame(Construct=rep(c("1: pCAG-Venus","2: pGlast-dsRed2","3: pCAG-tDimer", "4: pNeuroD-EGFP", "5: pGlast-dsRed2", "6: pNeuroD-EGFP"), each=6))
+
+C$Construct <- as.factor(C$Construct)
+ha_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = C,
+                              col = list(Construct = c("1: pCAG-Venus"="forestgreen","2: pGlast-dsRed2/pCAG-Venus" =  "red", "3: pCAG-tDimer"="red","4: pNeuroD-EGFP/pCAG-tDimer" = "forestgreen", "5: pGlast-dsRed2/pCAG-Venus" =  "yellow", "6: pNeuroD-EGFP/pCAG-tDimer" = "yellow")))
+ha_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = C,
+                              col = list(Construct = c("1: pCAG-Venus"="forestgreen","2: pGlast-dsRed2" =  "red", "3: pCAG-tDimer"="red","4: pNeuroD-EGFP" = "forestgreen", "5: pGlast-dsRed2" =  "red", "6: pNeuroD-EGFP" = "forestgreen")))
+
+ha_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = C,
+                              col = list(Construct = c("1: pGlast-dsRed2" =  "red","2: pNeuroD-EGFP" = "forestgreen")))
+
+D <- data.frame(Age=rep(c("1: E14","2: E14","3: E18", "4: E18", "5: E14","6: E18"), each=3))
+D <- data.frame(Age=rep(c("1: E14","2: E14","3: E18", "4: E18", "5: E14","6: E18"), each=6))
+D <- data.frame(Age=rep(c("1: E14","2: E18"), each=3))
+D <- data.frame(Age=rep(c("1: E14","2: E18"), each=6))
+
+D$Age <- as.factor(D$Age)
+ho_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = D,
+                              col = list(Age = c("1: E14"="grey","2: E14" =  "grey", "3: E18"="black","4: E18" = "black", "5: E14" =  "grey", "6: E18" = "black")))
+
+ho_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = D,
+                              col = list(Age = c("1: E14"="grey", "2: E18"="black")))
+
+dend_all = as.dendrogram(hclust(dist(as.matrix(df_matrix))))
+dend_all = color_branches(dend_all, k = 2)
+dend_all = as.dendrogram(hclust(dist(as.matrix(df_matri))))
+dend_all = color_branches(dend_all, k = 2)
+
+column_split = rep("group1", 18)
+column_split[4:6] = "group2"
+column_split[7:9] = "group3"
+column_split[10:12] = "group4"
+column_split[13:15] = "group5"
+column_split[16:18] = "group6"
+
+column_split = rep("group1", 36)
+column_split[7:12] = "group2"
+column_split[13:18] = "group3"
+column_split[19:24] = "group4"
+column_split[25:30] = "group5"
+column_split[31:36] = "group6"
+
+column_split = rep("group1", 6)
+column_split[4:6] = "group2"
+
+column_split = rep("group1", 12)
+column_split[7:12] = "group2"
+
+row_split=subs$group
+
+#install.packages("colorRamp2")
+#library("colorRamp2")
+min(df_matrix)
+#col_fun = colorRamp2(c(0,2.5,5, 7.5,10,12.5, 15), c("darkred","red","white","grey","skyblue", "blue", "darkblue"))
+col_fun = colorRamp2(c(-2,-1.5,-1,-0.5,0,0.5,1,1.5,2), c( "#FFFFFF", "#F0F0F0", "#D9D9D9" ,"#BDBDBD" ,"#969696", "#737373" ,"#525252" ,"#252525" ,"#000000"))
+col_fun = colorRamp2(c(-5,-2.5,-0.5,-0.25,0,0.25,0.5,2.5,5), c("#762A83", "#9970AB", "#C2A5CF" ,"#E7D4E8" ,"#F7F7F7", "#D9F0D3" ,"#A6DBA0" ,"#5AAE61" ,"#1B7837"))
+col_fun = colorRamp2(c(-8,-2.5,-1,-0.5,0,0.5,1,2.5,4), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+str(t)
+#col_fun = colorRamp2(c(0,1,2.5, 5, 7.5, 10, 12.5, 14,15), c( "#FFFFFF", "#F0F0F0", "#D9D9D9" ,"#BDBDBD" ,"#969696", "#737373" ,"#525252" ,"#252525" ,"#000000"))
+#col_fun = colorRamp2(c(0,1,2.5,5,7.5,10,12.5,13), c( "#FFFFFF", "#F0F0F0", "#D9D9D9" ,"#BDBDBD" ,"#969696", "#737373" ,"#525252" ,"#252525" ,"#000000"))
+col_funny <- colorRampPalette(brewer.pal(9, "RdBu"))(9)
+#col_fun = colorRamp2(c(3,5000,7500, 10000,15000,17500, 20000), c("darkred","red","white","grey","skyblue", "blue", "darkblue"))
+hach <- Heatmap(as.matrix(df_matri[,c(13:18)] ), #df_matri[,c(25:36)]
+                bottom_annotation = ha_column,
+                top_annotation = ho_column,
+                #column_title="Selected neuronal marker genes (RNAseq results)",
+                column_title="Marker genes",
+                column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+                #column_names_gp = gpar(col = rep(c("forestgreen","red","red", "forestgreen", "red", "forestgreen"), each=6), fontface="bold", fontsize=10),
+                column_names_gp = gpar(col = rep(c("red","forestgreen","red", "forestgreen", "red", "forestgreen"), each=3), fontface="bold", fontsize=10),
+                column_names_rot = 90, column_names_side = "top",column_names_centered = T,
+                row_names_gp = gpar(fontface = "bold"),
+                #cluster_rows = dend_all, 
+                show_row_dend = T,
+                show_heatmap_legend = F, 
+                col = col_fun,
+                #column_split = colnames(h),
+                #column_dend_reorder=T,
+                border_gp = gpar(col = "grey"),
+                # row_gap = unit(c(1, 1), "mm"), 
+                # cluster_columns = dend_hc,
+                #column_gap = unit(c(2, 4), "mm"),
+                #cluster_column_slices=F,
+                cluster_columns = F,
+                border=F,
+                #  column_gap = unit(c(1, 5, 1, 5,1), "mm"),
+                column_gap = unit(c(2), "mm"),
+                column_split = column_split,
+                row_split = row_split,
+                row_title_rot =90,
+                row_title_gp=gpar(fontsize = 12, fontface = "bold"),
+                heatmap_legend_param = list(labels_gp = gpar(fontsize = 10)),
+                heatmap_width = unit(15, "cm"), 
+                heatmap_height = unit(20, "cm"),
+                show_parent_dend_line=T)
+
+lgd = Legend(title ="Z-scored gene expression", 
+             col_fun = col_fun,direction = "vertical")
+draw(hach, 
+     annotation_legend_list = lgd, 
+     annotation_legend_side = "bottom")
+
+# Neuronal marker genes ----
+## Figure 16 ----
+
+ggplot(C1, aes(Age, value)) +
+  # geom_boxplot(aes(fill=chrAge, alpha=0.9))+
+  geom_boxplot(aes(Age, value), alpha=0.5)+  #, colour=Group
+  #geom_point(position = "dodge", alpha=0.25)+
+  # geom_smooth(aes(group=Group),se=F, method="loess",span = 0.15 )+
+  # geom_point(aes( fill=Group, alpha=0.1)) +
+  #geom_point(aes(as.numeric(Age), value, fill=Group, colour=Group), alpha=0.01) +
+  # geom_jitter(aes(as.numeric(Age), value, colour=Group),width=0.1) +
+  # scale_fill_hue()+
+  scale_colour_manual(values = c("forestgreen", "red"))+ #"limegreen"
+  facet_wrap(~Clusters, ncol=1,labeller = labeller(Clusters = new_labels, Group=new_labels)) + 
+  #facet_grid(Group~Clusters,scales="free", space="free_x",labeller = labeller(Clusters = new_labels, Group=new_labels)) + 
+  labs(title = "Neuronal marker genes", 
+       #subtitle = "degPatterns with rlog transformed counts on special samples only",
+       x="Age",
+       y= "Z-score of gene abundance")+
+  cowplot::theme_half_open(14)+
+  # theme(aspect.ratio = 1) +
+  geom_smooth(formula = y ~ stats::poly(x, 5, raw = TRUE), method='gam',aes(as.numeric(Age), value, color= after_stat(y < 0) )) +
+  #  geom_smooth(se=F,formula = y ~ stats::poly(x, 5, raw = TRUE), method='gam',aes(as.numeric(Age), value, color= Group, fill=Group )) +
+  cowplot::background_grid() +
+  #geom_rect(data=ready_df[ready_df$Group=="ctrl",],aes(fill = Group),fill="tomato",  xmin = -Inf, xmax = Inf, ymin = -Inf,  ymax = Inf,   alpha=0.002, show.legend = F)+
+  #geom_rect(data=ready_df[ready_df$Group=="special",],aes(fill = Group),fill="darkseagreen",xmin = -Inf, xmax = Inf, ymin = -Inf,  ymax = Inf,       alpha=0.002, show.legend = F) +
+  guides(fill = "none", alpha= "none", color=guide_legend(override.aes=list(fill=NA)))+
+  geom_hline( aes(yintercept = 0), linetype=2, color="blue")+
+  geom_vline(data=ready_df, aes(xintercept = unlist(root_value)), linetype=2,size=1, color=c("forestgreen"))+
+  #   geom_vline(data=ready_df_c, aes(xintercept = unlist(root_value)), linetype=2,size=1, color=c("red"))+
+  #  geom_vline(data=ready_df_sp,aes(xintercept = unlist(root_value)), linetype=2, size=1, color=c("forestgreen"))+
+  #ggforce::geom_sina(maxwidth = 0.3) +
+  #geom_rect(aes(fill = Age), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, alpha=0.006, color=NA, show.legend = F) +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "vertical",
+        legend.box = "vertical",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        # legend.background =element_blank(),
+        #legend.background = element_rect(fill="#5D729D", size=0.5, linetype="solid",   colour ="white"),
+        axis.text.x = element_text(angle = 45, hjust = 1, size=10),
+        axis.title = element_text(face = "bold"),
+        plot.title = element_text(size = 18, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 15, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank(),
+        plot.margin=unit(c(0.5,1,0.5,0.5),"cm"),
+        strip.text.x = element_textbox_highlight(
+          color = "white", fill = "forestgreen", box.color = "forestgreen",
+          size = 12, face="bold",
+          halign = 0.5, linetype = 1, r = unit(5, "pt"), width = unit(1, "npc"),
+          padding = margin(5, 0, 5, 0), margin = margin(3, 3, 3, 3),
+          hi.labels = c("special"),
+          hi.fill = "forestgreen", hi.box.col = "forestgreen", hi.col = "white")),
+strip.text.y.right  = element_textbox(
+  color = "white", fill = "#5D729D", 
+  size = 12, orientation = "left-rotated",face="bold",
+  #  halign = 0.5, linetype = 1, r = unit(5, "pt"), width = unit(1, "npc"),
+  #  padding = margin(5, 0, 5, 0), margin = margin(3, 3, 3, 3)
+)+
+  lapply(1:length(models), function(i) {
+    coefs <- unname(coef(models[[i]]))
+    equation <- paste(format(coefs[1], digits = 1), " + ", format(coefs[2], digits = 1), "*x + ", format(coefs[3], digits = 1), "*x^2 + ", format(coefs[4], digits = 1), "*x^3 + ", format(coefs[5], digits = 1), "*x^4 + ", format(coefs[6], digits = 1), "*x^5", sep = "")
+    geom_label(x = 5, y = 3, label = equation, hjust = 0.5, size = 3, fill = alpha(c("white"),0.5), color=alpha(c("blue"),0.5), data = split_data[[i]], inherit.aes = FALSE)
+  })
+lapply(1:length(models_c), function(i) {
+  coefs <- unname(coef(models_c[[i]]))
+  equation <- paste(format(coefs[1], digits = 1), " + ", format(coefs[2], digits = 1), "*x + ", format(coefs[3], digits = 1), "*x^2 + ", format(coefs[4], digits = 1), "*x^3 + ", format(coefs[5], digits = 1), "*x^4 + ", format(coefs[6], digits = 1), "*x^5", sep = "")
+  geom_label(x = 5, y = 2, label = equation, hjust = 0.5, size = 3, fill = "white", color="red", alpha = 0.75, data = split_data_c[[i]], inherit.aes = FALSE)
+})+
+  lapply(1:length(models_sp), function(i) {
+    coefs <- unname(coef(models_sp[[i]]))
+    equation <- paste(format(coefs[1], digits = 1), " + ", format(coefs[2], digits = 1), "*x + ", format(coefs[3], digits = 1), "*x^2 + ", format(coefs[4], digits = 1), "*x^3 + ", format(coefs[5], digits = 1), "*x^4 + ", format(coefs[6], digits = 1), "*x^5", sep = "")
+    geom_label(x = 5, y = 3, label = equation, hjust = 0.5, size = 3, fill = "white", color="forestgreen", alpha = 0.75, data = split_data_sp[[i]], inherit.aes = FALSE)
+  })
+
+
+# Consecutive time points ----  
+# Figure 20 ----
+# #dds_deseq_sp
+#degs <- results(dds_lrt,  tidy = F)
+degs <- results(dds_sp,  tidy = F)
+sum(abs(degs$log2FoldChange) >= 0 & !is.na(degs$padj) & degs$padj < 0.01)
+
+dds_deseq_sp <- dds_lrt
+dds_deseq_sp <- dds_sp
+degs_E14_E16 <- results(dds_deseq_sp, contrast=c("Age", "E16", "E14"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_E16_E17 <- results(dds_deseq_sp, contrast=c("Age", "E17", "E16"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_E17_E18 <- results(dds_deseq_sp, contrast=c("Age", "E18", "E17"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_E18_E19_E <- results(dds_deseq_sp, contrast=c("Age", "E19_E", "E18"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_E18_E19_P <- results(dds_deseq_sp, contrast=c("Age", "E18", "E19_P"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_E19_P_P3 <- results(dds_deseq_sp, contrast=c("Age", "P3", "E19_P"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_P3_P5 <- results(dds_deseq_sp, contrast=c("Age", "P5", "P3"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_P5_P7 <- results(dds_deseq_sp, contrast=c("Age", "P7", "P5"))%>%subset( !is.na(padj)& padj < 0.01)
+degs_P3_P7 <- results(dds_deseq_sp, contrast=c("Age", "P7", "P3"))%>%subset( !is.na(padj)& padj < 0.01)
+
+degs_counts <- rbind(
+  data.frame(Timepoint = "E14-E16", DEG = "Up", Count = sum(degs_E14_E16$log2FoldChange > 0 )),
+  data.frame(Timepoint = "E14-E16", DEG = "Down", Count = sum(degs_E14_E16$log2FoldChange < 0)),
+  data.frame(Timepoint = "E16-E17", DEG = "Up", Count = sum(degs_E16_E17$log2FoldChange > 0)),
+  data.frame(Timepoint = "E16-E17", DEG = "Down", Count = sum(degs_E16_E17$log2FoldChange < 0)),
+  data.frame(Timepoint = "E17-E18", DEG = "Up", Count = sum(degs_E17_E18$log2FoldChange > 0)),
+  data.frame(Timepoint = "E17-E18", DEG = "Down", Count = sum(degs_E17_E18$log2FoldChange < 0)),
+  #data.frame(Timepoint = "E18-E19_E", DEG = "Up", Count = sum(degs_E18_E19_E$log2FoldChange > 0)),
+  # data.frame(Timepoint = "E18-E19_E", DEG = "Down", Count = sum(degs_E18_E19_E$log2FoldChange < 0)),
+  data.frame(Timepoint = "E18-E19_P", DEG = "Up", Count = sum(degs_E18_E19_P$log2FoldChange > 0)),
+  data.frame(Timepoint = "E18-E19_P", DEG = "Down", Count = sum(degs_E18_E19_P$log2FoldChange < 0)),
+  data.frame(Timepoint = "E19_P-P3", DEG = "Up", Count = sum(degs_E19_P_P3$log2FoldChange > 0)),
+  data.frame(Timepoint = "E19_P-P3", DEG = "Down", Count = sum(degs_E19_P_P3$log2FoldChange < 0)),
+  #data.frame(Timepoint = "P3-P5", DEG = "Up", Count = sum(degs_P3_P5$log2FoldChange > 0)),
+  #data.frame(Timepoint = "P3-P5", DEG = "Down", Count = sum(degs_P3_P5$log2FoldChange < 0)),
+  data.frame(Timepoint = "P3-P7", DEG = "Up", Count = sum(degs_P3_P7$log2FoldChange > 0)),
+  data.frame(Timepoint = "P3-P7", DEG = "Down", Count = sum(degs_P3_P7$log2FoldChange < 0))
+  #data.frame(Timepoint = "P5-P7", DEG = "Up", Count = sum(degs_P5_P7$log2FoldChange > 0)),
+  #  data.frame(Timepoint = "P5-P7", DEG = "Down", Count = sum(degs_P5_P7$log2FoldChange < 0))
+)
+
+n_degs <- c(
+  sum(abs(degs_E14_E16$log2FoldChange) >= 0 & !is.na(degs_E14_E16$padj) & degs_E14_E16$padj < 0.01),
+  sum(abs(degs_E16_E17$log2FoldChange) >= 0 & !is.na(degs_E16_E17$padj) & degs_E16_E17$padj < 0.01),
+  sum(abs(degs_E17_E18$log2FoldChange) >= 0 & !is.na(degs_E17_E18$padj) & degs_E17_E18$padj < 0.01),
+  sum(abs(degs_E18_E19_P$log2FoldChange) >= 0 & !is.na(degs_E18_E19_P$padj) & degs_E18_E19_P$padj < 0.01),
+  sum(abs(degs_E19_P_P3$log2FoldChange) >= 0 & !is.na(degs_E19_P_P3$padj) & degs_E19_P_P3$padj < 0.01),
+  sum(abs(degs_P3_P5$log2FoldChange) >= 0 & !is.na(degs_P3_P5$padj) & degs_P3_P5$padj < 0.01),
+  sum(abs(degs_P5_P7$log2FoldChange) >= 0 & !is.na(degs_P5_P7$padj) & degs_P5_P7$padj < 0.01))
+#  sum(abs(degs_E18_E19_P$log2FoldChange) >= 1 & !is.na(degs_E18_E19_P$padj) & degs_E18_E19_P$padj < 0.05),
+
+results_E14_E16_up <- results(dds_deseq_sp, contrast=c("Age", "E16", "E14"))%>%subset(log2FoldChange > 0& padj < 0.01)
+results_E14_E16_down <- results(dds_deseq_sp, contrast=c("Age", "E16", "E14"))%>%subset(log2FoldChange < 0& padj < 0.01)
+results_E16_E17_up <- results(dds_deseq_sp, contrast=c("Age", "E17", "E16"))%>%subset(log2FoldChange > 0& padj < 0.01)
+results_E16_E17_down <- results(dds_deseq_sp, contrast=c("Age", "E17", "E16"))%>%subset(log2FoldChange < 0& padj < 0.01)
+results_E17_E18_up <- results(dds_deseq_sp, contrast=c("Age", "E18", "E17"))%>%subset(log2FoldChange > 0& padj < 0.01)
+results_E17_E18_down <- results(dds_deseq_sp, contrast=c("Age", "E18", "E17"))%>%subset(log2FoldChange < 0& padj < 0.01)
+#results_E18_E19_E_up <- results(dds_deseq_sp, contrast=c("Age", "E19_E", "E18"))%>%subset(log2FoldChange > 0& padj < 0.01)
+#results_E18_E19_E_down <- results(dds_deseq_sp, contrast=c("Age", "E19_E", "E18"))%>%subset(log2FoldChange < 0& padj < 0.01)
+results_E18_E19_P_up <- results(dds_deseq_sp, contrast=c("Age", "E19_P", "E18"))%>%subset(log2FoldChange > 0& padj < 0.01)
+results_E18_E19_P_down <- results(dds_deseq_sp, contrast=c("Age", "E19_P", "E18"))%>%subset(log2FoldChange < 0& padj < 0.01)
+results_E19_P_P3_up <- results(dds_deseq_sp, contrast=c("Age", "P3", "E19_P"))%>%subset(log2FoldChange > 0& padj < 0.01)
+results_E19_P_P3_down <- results(dds_deseq_sp, contrast=c("Age", "P3", "E19_P"))%>%subset(log2FoldChange < 0& padj < 0.01)
+results_P3_P7_up <- results(dds_deseq_sp, contrast=c("Age", "P7", "P3"))%>%subset(log2FoldChange > 0& padj < 0.01)
+results_P3_P7_down <- results(dds_deseq_sp, contrast=c("Age", "P7", "P3"))%>%subset(log2FoldChange < 0& padj < 0.01)
+
+DEGs <- list("E14_E16_up"=row.names(results_E14_E16_up), "E14_E16_down"=row.names(results_E14_E16_down),
+             "E16_E17_up"=row.names(results_E16_E17_up), "E16_E17_down"=row.names(results_E16_E17_down),
+             "E17_E18_up"=row.names(results_E17_E18_up), "E17_E18_down"=row.names(results_E17_E18_down),
+             # "E18_E19_E_up"=row.names(results_E18_E19_P_up),"E18_E19_E_down"= row.names(results_E18_E19_P_down),
+             "E18_E19_P_up"=row.names(results_E18_E19_P_up),"E18_E19_P_down"= row.names(results_E18_E19_P_down),
+             "E19_P_P3_up"=row.names(results_E19_P_P3_up), "E19_P_P3_down"=row.names(results_E19_P_P3_down),
+             "P3_P7_up"=row.names(results_P3_P7_up),"P3_P7_down"= row.names(results_P3_P7_down))
+
+ggplot(degs_counts, aes(x = Timepoint, y = Count, fill = DEG, label=Count)) + 
+  # geom_bar(stat = "identity") +
+  geom_col(position = position_dodge2(width = 1.5, preserve = "total"),col="black",
+           width = 0.8,alpha=1) +
+  #geom_text(size = 5, position = position_stack(vjust = 0.5), fontface="bold")+
+  scale_fill_manual(values = c("Up" = "#46bac2", "Down" = "#95608e")) + 
+  labs(title = "Number of DEGs between consecutive time points",
+       subtitle="Wald test, log2FC <0> & padj < 0.01",
+       x = "Contrasts", y = "Number of DEGs", fill="DEG regulation")+
+  theme_half_open(14) +
+  scale_x_discrete(expand = c(0.1, 0.1)) +
+  scale_y_continuous(limits = c(0, 1250), breaks = c(0, 250, 500, 750, 1000, 1250))+
+  background_grid() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14, face="bold"), 
+    axis.text.y = element_text( hjust = 1, size = 14), 
+    axis.title = element_text(face = "bold", size=15),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 15, face = "bold", hjust = 0.5, color = "grey"),
+    plot.margin = unit(c(0.5, 0, 0.5, 0), "cm"),
+    strip.background = element_blank(),
+    legend.justification = "center",
+    legend.direction = "horizontal",
+    legend.box = "vertical",
+    legend.position = "bottom",
+    legend.text = element_text(size = 14, face = "bold"),
+    legend.title = element_text(size = 16, face = "bold"))+
+  #scale_y_continuous(limits = c(0, max(n_degs) * 1.1), expand = c(0, 0.1)) +
+  # coord_cartesian(clip = "off", ylim = c(0, max(n_degs) * 1.1)) +
+  geom_text(size = 5,position = position_dodge2(width = 6, preserve = "total"), 
+            vjust=-1, col="black",fontface="bold")
+
+top_GO <- ego@compareClusterResult %>%    
+  group_by(Cluster) %>% slice_max(Count,n=5, with_ties=F) %>% 
+  dplyr::select(c("Cluster","ID","Description", 'qvalue', "Count", "geneID"))
+view(top_GO)
+topp_GO <- top_GO[c(2,7,
+                    11, 17,
+                    21,26,
+                    35, 36,
+                    42,50,
+                    53, NA),]
+time_order <- rep(c("E14 vs E16", "E16 vs E17", "E17 vs E18",
+                    "E18 vs E19_P", "E19_P vs P3", "P3 vs P7"), each = 2)
+top_go <- topp_GO
+top_go <- top_go%>%mutate(Age= time_order)
+top_go <- top_go%>%mutate(DEGs= degs_counts$Count)
+top_go$Description <- stringr::str_replace(top_go$Description,
+                                           "regulation of epithelial cell proliferation",
+                                           "regulation of\nepithelial cell proliferation")
+
+top_go$type <- rep(c("up", "down"),6)
+top_go$type <- factor(top_go$type, levels=c("up", "down"))
+ggplot(top_go, aes(x = as.factor(Age), y = Count, label = Description, fill = type)) +
+  geom_col(position = position_dodge2(width = 1, preserve = "total"),width = 0.25, col="black") +
+  facet_wrap(.~type, ncol = 1, scales = "free_y")+
+  theme_minimal() +
+  ggh4x::facetted_pos_scales(y = list(
+    scale_y_reverse(limits = c(0, 75)),
+    scale_y_continuous(limits = c(75, 0))))+ 
+  scale_fill_manual(values = rev(c("#95608e", "#46bac2")), labels = c("Up", "Down")) + 
+  #scale_color_gradientn(colours=rev(c("#b3eebe", "#46bac2", "#371ea3", "#95608e")))
+  labs(fill = "DEG regulation") +
+  xlab("Timepoints") +
+  ylab("Count") +
+  labs(title = "Up- and downregulated GOterms between consecutive time points",
+       subtitle="Overrepresentated biological processes",
+       x = "Consecutive timepoints", y = "Number of genes in GOterm to DEG")+
+  geom_label( aes(y= Count+5, label = Description, fill=type), size = 5, 
+              fontface = "bold", color="white",show.legend = FALSE)+
+  #nudge_y = rep(c(25,15,5,1), length.out = nrow(top_GO)))+
+  # theme_half_open() +
+  theme(legend.justification = "center",
+        legend.direction = "horizontal",
+        legend.box = "vertical",
+        legend.position = "bottom",
+        legend.text = element_text(size = 14, face = "bold"),
+        legend.title = element_text(size = 16, face = "bold"),
+        axis.title = element_text(face = "bold", size=15),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14, face="bold"), 
+        axis.text.y = element_text( hjust = 1, size = 14), 
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 15, face = "bold", hjust = 0.5, color = "grey"),
+        plot.margin = unit(c(0.5, 0, 0, 0), "cm"),
+        strip.background = element_blank(), strip.text = element_blank(),
+        strip.placement = "outside",
+        strip.text.y = element_text(margin = margin(0, 0, 0, 10)))  
+# geom_segment(aes(x = Age, y = Count+3, xend = Age, yend = Count, group = type),
+#              position = position_dodge2(width = 0.25, preserve = "total"), alpha = 0.9,
+#              color = "grey", show.legend = FALSE) 
+
+write.csv(top_GO, "ConsecutiveAnalysisMetrics.csv")
+
+# Multicomparison ----
+# Figure 21-23 ----
+
+df <- filtclusters  #filtcluster version
+df$chrAge<- df$Age 
+df$Age <- as.factor(df$Age) 
+df_c <- df[df$Group=="ctrl",]
+df_sp <- df[df$Group=="special",]
+
+roots <- lapply(unique(df$cluster), function(c) {
+  indices <- which(df$cluster == c)
+  x <- df[indices,]$Age
+  y <- df[indices,]$value
+  fitx <- lm(formula = value ~ stats::poly(Age, 5, raw = TRUE), data=df[df$cluster==c,])
+  coefs <- fitx$coefficients 
+  roots <- Re(polyroot(coefs))[abs(Im(polyroot(coefs))) < 1e-6] })
+real_names <- unique(df$cluster)
+names(roots) <- real_names
+
+roots_c <- lapply(unique(df_c$cluster), function(c) {
+  indices <- which(df_c$cluster == c)
+  x <- df_c[indices,]$Age
+  y <- df_c[indices,]$value
+  fitx <- lm( formula = value ~ stats::poly(Age, 5, raw = TRUE), data=df_c[df_c$cluster==c,])
+  coefs <- fitx$coefficients 
+  roots <- Re(polyroot(coefs))[abs(Im(polyroot(coefs))) < 1e-6] })
+real_names_c <- unique(df_c$cluster)
+names(roots_c) <- real_names_c
+
+roots_sp <- lapply(unique(df_sp$cluster), function(c) {
+  indices <- which(df_sp$cluster == c)
+  x <- df_sp[indices,]$Age
+  y <- df_sp[indices,]$value
+  fitx <- lm( formula = value ~ stats::poly(Age, 5, raw = TRUE), data=df_sp[df_sp$cluster==c,])
+  coefs <- fitx$coefficients 
+  roots <- Re(polyroot(coefs))[abs(Im(polyroot(coefs))) < 1e-6] })
+real_names_sp <- unique(df_sp$cluster)
+names(roots_sp) <- real_names_sp
+
+cluster_names <- c("Cluster 1", "Cluster 4", "Cluster 3", "Cluster 2" )
+#cluster_names <- c("Cluster 1", "Cluster 5", "Cluster 6", "Cluster 4", "Cluster 2" , "Cluster 3")
+
+roots_df <- data.frame(cluster = rep(1:length(roots), lengths(roots)),
+                       root_value = unlist(roots)) %>%group_by(cluster) %>%
+  dplyr::mutate(id = 1:n()) %>%  ungroup()  
+real_names <- unique(df$cluster)
+roots_df$cluster <- real_names[roots_df$cluster]
+#roots_df$cluster <- cluster_names[roots_df$cluster]
+
+roots_df_c <- data.frame(cluster = rep(1:length(roots_c), lengths(roots_c)),
+                         root_value = unlist(roots_c)) %>%group_by(cluster) %>%
+  dplyr::mutate(id = 1:n()) %>%  ungroup()  
+real_names_c <- unique(df_c$cluster)
+roots_df_c$cluster <- real_names_c[roots_df_c$cluster]
+#roots_df_c$cluster <- cluster_names[roots_df_c$cluster]
+
+roots_df_sp <- data.frame(cluster = rep(1:length(roots_sp), lengths(roots_sp)),
+                          root_value = unlist(roots_sp)) %>%group_by(cluster) %>%
+  dplyr::mutate(id = 1:n()) %>%  ungroup()  
+real_names_sp <- unique(df_sp$cluster)
+roots_df_sp$cluster <- real_names_sp[roots_df_sp$cluster]
+#roots_df_sp$cluster <- cluster_names[roots_df_sp$cluster]
+
+dff <- left_join(df, roots_df, by = c("cluster" = "cluster"))  #all clusters calculated together 
+dff_c <- left_join(df_c, roots_df_c, by = c("cluster" = "cluster"))  #all clusters calculated together 
+dff_sp <- left_join(df_sp, roots_df_sp, by = c("cluster" = "cluster"))  #all clusters calculated together 
+dff <- dff[dff$root_value>=0 & dff$root_value<=9,]  #change to how many timepoints measured
+dff_c <- dff_c[dff_c$root_value>=0 & dff_c$root_value<=9,] 
+dff_sp <- dff_sp[dff_sp$root_value>=0 & dff_sp$root_value<=9,] 
+
+dff$Clusters <- dff$cluster
+levels(as.factor(dff$Clusters))
+dff$Clusters <- factor(dff$Clusters, levels=c(4,1,2,3), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+#dff$Clusters <- factor(dff$Clusters, levels=c(4,3,2), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+na_in_col1 <- is.na(dff$Clusters)
+df_without_na_col1 <- dff[!na_in_col1, ]
+ready_df <- df_without_na_col1
+
+dff_c$Clusters <- dff_c$cluster
+levels(as.factor(dff_c$Clusters))
+dff_c$Clusters <- factor(dff_c$Clusters, levels=c(5,3,4,2,1), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+#dff_c$Clusters <- factor(dff_c$Clusters, levels=c(4,3,2), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+na_in_col1_c <- is.na(dff_c$Clusters)
+df_without_na_col1_c <- dff_c[!na_in_col1_c, ]
+ready_df_c <- df_without_na_col1_c
+dff_sp$Clusters <- dff_sp$cluster
+levels(as.factor(dff_sp$Clusters))
+dff_sp$Clusters <- factor(dff_sp$Clusters, levels=c(5,3,4,2,1), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+#dff_sp$Clusters <- factor(dff_sp$Clusters, levels=c(4,3,2), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+na_in_spol1_sp <- is.na(dff_sp$Clusters)
+df_without_na_spol1_sp <- dff_sp[!na_in_spol1_sp, ]
+ready_df_sp <- df_without_na_spol1_sp
+
+new_labels <- c("1" = "Cluster 1: 408 genes", 
+                "4" = "Cluster 2: 120 genes", 
+                "3" = "Cluster 3: 495 genes", 
+                "2" = "Cluster 4: 732 genes", 
+                "special" = "special")
+
+split_data <- split(ready_df, ready_df$Cluster)
+models <- lapply(split_data, function(x) {
+  lm(formula=value ~ stats::poly(Age, 5, raw = TRUE), data = x)
+})
+
+str(ready_df_c)
+split_data_c <- split(ready_df_c, ready_df_c$Cluster)
+models_c <- lapply(split_data_c, function(x) {
+  lm(formula=value ~ stats::poly(Age, 5, raw = TRUE), data = x)
+})
+
+split_data_sp <- split(ready_df_sp, ready_df_sp$Cluster)
+models_sp <- lapply(split_data_sp, function(x) {
+  lm(formula=value ~ stats::poly(Age, 5, raw = TRUE), data = x)
+})
+
+names(models) <-c("Cluster 1","Cluster 2","Cluster 3","Cluster 4")
+names(models_c) <-c("Cluster 1","Cluster 2","Cluster 3","Cluster 4","Cluster 5")
+names(models_sp) <-c("Cluster 1","Cluster 2","Cluster 3","Cluster 4","Cluster 5")
+
+equations <- list()
+for (cluster in names(models)) {
+  coefficients <- unname(coef(models[[cluster]]))
+  equation_str <- paste(
+    format(coefficients[1]),
+    " + ", format(coefficients[2]), "*x + ",
+    format(coefficients[3]), "*x^2 + ", format(coefficients[4]), "*x^3 + ",
+    format(coefficients[5]), "*x^4 + ", format(coefficients[6]), "*x^5",
+    sep = ""
+  )
+  equations[[paste0("", cluster)]] <- equation_str
+}
+
+equations_c <- list()
+for (cluster in names(models)) {
+  coefficients <- unname(coef(models_c[[cluster]]))
+  equation_str <- paste(
+    format(coefficients[1]),
+    " + ", format(coefficients[2]), "*x + ",
+    format(coefficients[3]), "*x^2 + ", format(coefficients[4]), "*x^3 + ",
+    format(coefficients[5]), "*x^4 + ", format(coefficients[6]), "*x^5",
+    sep = ""
+  )
+  equations_c[[paste0("", cluster)]] <- equation_str
+}
+#names(equations_c) <- cluster_names
+
+equations_sp <- list()
+for (cluster in names(models_sp)) {
+  coefficients <- unname(coef(models_sp[[cluster]]))
+  equation_str <- paste(
+    format(coefficients[1]),
+    " + ", format(coefficients[2]), "*x + ",
+    format(coefficients[3]), "*x^2 + ", format(coefficients[4]), "*x^3 + ",
+    format(coefficients[5]), "*x^4 + ", format(coefficients[6]), "*x^5",
+    sep = ""
+  )
+  equations_sp[[paste0("", cluster)]] <- equation_str
+}
+#names(equations_sp) <- cluster_names
+
+
+
+
+df_w <- df[df$Treatment=="w",]
+df_PBS <- df[df$Treatment=="PBS",]
+df_PolyIC <- df[df$Treatment=="PolyIC",]
+roots_w <- lapply(unique(df_w$cluster), function(c) {
+  indices <- which(df_w$cluster == c)
+  x <- df_w[indices,]$Age
+  y <- df_w[indices,]$value
+  fitx <- lm( formula = value ~ stats::poly(Age, 3, raw = TRUE), data=df_w[df_w$cluster==c,])
+  coefs <- fitx$coefficients 
+  roots <- Re(polyroot(coefs))[abs(Im(polyroot(coefs))) < 1e-6] })
+real_names_w <- unique(df_w$cluster)
+names(roots_w) <- real_names_w
+roots_PBS <- lapply(unique(df_PBS$cluster), function(c) {
+  indices <- which(df_PBS$cluster == c)
+  x <- df_PBS[indices,]$Age
+  y <- df_PBS[indices,]$value
+  fitx <- lm( formula = value ~ stats::poly(Age, 3, raw = TRUE), data=df_PBS[df_PBS$cluster==c,])
+  coefs <- fitx$coefficients 
+  roots <- Re(polyroot(coefs))[abs(Im(polyroot(coefs))) < 1e-6] })
+real_names_PBS <- unique(df_PBS$cluster)
+names(roots_PBS) <- real_names_PBS
+roots_PolyIC <- lapply(unique(df_PolyIC$cluster), function(c) {
+  indices <- which(df_PolyIC$cluster == c)
+  x <- df_PolyIC[indices,]$Age
+  y <- df_PolyIC[indices,]$value
+  fitx <- lm( formula = value ~ stats::poly(Age, 3, raw = TRUE), data=df_PolyIC[df_PolyIC$cluster==c,])
+  coefs <- fitx$coefficients 
+  roots <- Re(polyroot(coefs))[abs(Im(polyroot(coefs))) < 1e-6] })
+real_names_PolyIC <- unique(df_PolyIC$cluster)
+names(roots_PolyIC) <- real_names_PolyIC
+
+roots_df_w <- data.frame(cluster = rep(1:length(roots_w), lengths(roots_w)),
+                         root_value = unlist(roots_w)) %>%group_by(cluster) %>%
+  dplyr::mutate(id = 1:n()) %>%  ungroup()  
+real_names_w <- unique(df_w$cluster)
+roots_df_w$cluster <- real_names_w[roots_df_w$cluster]
+roots_df_PBS <- data.frame(cluster = rep(1:length(roots_PBS), lengths(roots_PBS)),
+                           root_value = unlist(roots_PBS)) %>%group_by(cluster) %>%
+  dplyr::mutate(id = 1:n()) %>%  ungroup()  
+real_names_PBS <- unique(df_PBS$cluster)
+roots_df_PBS$cluster <- real_names_PBS[roots_df_PBS$cluster]
+roots_df_PolyIC <- data.frame(cluster = rep(1:length(roots_PolyIC), lengths(roots_PolyIC)),
+                              root_value = unlist(roots_PolyIC)) %>%group_by(cluster) %>%
+  dplyr::mutate(id = 1:n()) %>%  ungroup()  
+real_names_PolyIC <- unique(df_PolyIC$cluster)
+roots_df_PolyIC$cluster <- real_names_PolyIC[roots_df_PolyIC$cluster]
+names(cluster_names) <- unique(roots_df$cluster)
+roots_df  <- roots_df  %>%
+  mutate(cluster = cluster_names[as.character(cluster)]) %>%
+  arrange(cluster, id)
+names(cluster_names) <- unique(roots_df_c$cluster)
+roots_df_c <- roots_df_c %>%
+  mutate(cluster = cluster_names[as.character(cluster)]) %>%
+  arrange(cluster, id)
+names(cluster_names) <- unique(roots_df_sp$cluster)
+roots_df_sp <- roots_df_sp %>%
+  mutate(cluster = cluster_names[as.character(cluster)]) %>%
+  arrange(cluster, id)
+names(cluster_names) <- unique(roots_df_w$cluster)
+roots_df_w <- roots_df_w %>%
+  mutate(cluster = cluster_names[as.character(cluster)]) %>%
+  arrange(cluster, id)
+names(cluster_names) <- unique(roots_df_PBS$cluster)
+roots_df_PBS <- roots_df_PBS %>%
+  mutate(cluster = cluster_names[as.character(cluster)]) %>%
+  arrange(cluster, id)
+names(cluster_names) <- unique(roots_df_PolyIC$cluster)
+roots_df_PolyIC <- roots_df_PolyIC %>%
+  mutate(cluster = cluster_names[as.character(cluster)]) %>%
+  arrange(cluster, id)
+
+str(df_w$cluster)
+
+dff_w <- left_join(df_w, roots_df_w, by = c("cluster" = "cluster"))  #all clusters calculated together 
+dff_PBS <- left_join(df_PBS, roots_df_PBS, by = c("cluster" = "cluster"))  #all clusters calculated together 
+dff_PolyIC <- left_join(df_PolyIC, roots_df_PolyIC, by = c("cluster" = "cluster"))  #all clusters calculated together 
+dff_w <- dff_w[dff_w$root_value>=(-1) & dff_w$root_value<=5,] 
+dff_PBS <- dff_PBS[dff_PBS$root_value>=0 & dff_PBS$root_value<=5,] 
+dff_PolyIC <- dff_PolyIC[dff_PolyIC$root_value>=0 & dff_PolyIC$root_value<=5,] 
+
+
+
+view(dff_w$cluster)
+dff_w$Clusters <- dff_w$cluster
+levels(as.factor(dff_w$Clusters))
+dff_w$Clusters <- factor(dff_w$Clusters, levels=c(1,2,3,4,5), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+#dff_w$Clusters <- factor(dff_w$Clusters, levels=c(4,3,2), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+na_in_wol1_w <- is.na(dff_w$Clusters)
+df_without_na_wol1_w <- dff_w[!na_in_wol1_w, ]
+ready_df_w <- df_without_na_wol1_w
+dff_PBS$Clusters <- dff_PBS$cluster
+levels(as.factor(dff_PBS$Clusters))
+dff_PBS$Clusters <- factor(dff_PBS$Clusters, levels=c(1,2,3,4,5), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+#dff_PBS$Clusters <- factor(dff_PBS$Clusters, levels=c(4,3,2), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+na_in_PBSol1_PBS <- is.na(dff_PBS$Clusters)
+df_without_na_PBSol1_PBS <- dff_PBS[!na_in_PBSol1_PBS, ]
+ready_df_PBS <- df_without_na_PBSol1_PBS
+dff_PolyIC$Clusters <- dff_PolyIC$cluster
+levels(as.factor(dff_PolyIC$Clusters))
+dff_PolyIC$Clusters <- factor(dff_PolyIC$Clusters, levels=c(1,2,3,4,5), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+#dff_PolyIC$Clusters <- factor(dff_PolyIC$Clusters, levels=c(4,3,2), ordered=TRUE)  #relevel as wished! c(16,7,4,1,38,29,24,23,6)
+na_in_PolyICol1_PolyIC <- is.na(dff_PolyIC$Clusters)
+df_without_na_PolyICol1_PolyIC <- dff_PolyIC[!na_in_PolyICol1_PolyIC, ]
+ready_df_PolyIC <- df_without_na_PolyICol1_PolyIC
+
+new_labels <- c("1" = "Cluster 1: 55 genes", 
+                "2" = "Cluster 2: 55 genes", 
+                "3" = "Cluster 3: 300 genes", #242+58
+                "4" = "Cluster 4: 128 genes", 
+                "5" = "Cluster 5: 72 genes", 
+                "6"="Cluster 6: 74 genes",   
+                "7"="Cluster 7: 59 genes", 
+                "8" = "Cluster 8: 176 genes", 
+                "special"="special")
+new_labels <- c("1" = "Cluster 1: 447 genes",  #384+93
+                "2" = "Cluster 2: 225 genes",  #163 + 62
+                "3" = "Cluster 3: 53 genes",
+                "4" = "Cluster 4: 69 genes",
+                "5" = "Cluster 5: 58 genes",
+                "w" = "without treatment",
+                "PolyIC" = "PolyI:C",
+                "PBS" ="PBS")
+new_labels <- c("1" = "Cluster 5: 90 genes", 
+                "3" = "Cluster 1: 73 genes", 
+                "4" = "Cluster 2: 169 genes",
+                "6" = "Cluster 8: 249 genes", 
+                "10" = "Cluster 6: 56 genes", 
+                "13"="Cluster 4: 114 genes",   
+                "41"="Cluster 3: 55 genes", 
+                "43" = "Cluster 7: 102 genes", 
+                "special"="special")
+new_labels <- c("1" = "Cluster 2: 316 genes", #154 +162
+                "2" = "Cluster 9: 261 genes", 
+                "3" = "Cluster 1: 304 genes", 
+                "4" = "Cluster 3: 69 genes", 
+                "5" = "Cluster 8: 223 genes", #133+90
+                "6"="Cluster 4: 132 genes",   #53+79
+                "7"="Cluster 5: 200 genes", 
+                "8" = "Cluster 6: 107 genes", 
+                "9" = "Cluster 7: 64 genes")
+
+new_labels <- c("1" = "Cluster 1: 285 genes", 
+                "2" = "Cluster 6: 150 genes", 
+                "3" = "Cluster 4: 452 genes", 
+                "4" = "Cluster 7: 462 genes", 
+                "5" = "Cluster 8: 308 genes", 
+                "6"="Cluster 5: 136 genes",   
+                "7"="Cluster 3: 71 genes", 
+                "8" = "Cluster 2: 136 genes")
+
+new_labels <- c("5" = "Cluster 1: 112 genes", 
+                "3" = "Cluster 2: 205 genes", 
+                "4" = "Cluster 3: 52 genes", 
+                "2" = "Cluster 4: 146 genes", 
+                "1" = "Cluster 5: 1395 genes", 
+                "special" = "special",
+                "ctrl"= "control")
+
+new_labels <- c("1" = "Cluster 1: 312 genes", 
+                "5" = "Cluster 2: 231 genes", 
+                "6" = "Cluster 3: 55 genes", 
+                "4" = "Cluster 4: 331 genes", 
+                "2" = "Cluster 5: 271 genes",
+                "3" = "Cluster 6: 624 genes",
+                "special" = "special",
+                "ctrl"= "control")
+
+new_labels <- c("1" = "Cluster 1: 16 genes", 
+                "2" = "Cluster 2: 18 genes", 
+                "3" = "Cluster 3: 9 genes", 
+                "special" = "special",
+                "ctrl"= "control")
+
+new_labels <- c("2" = "Cluster 1: 1214 genes", 
+                "1" = "Cluster 2: 74 genes",  
+                "4" = "Cluster 3: 187 genes", 
+                "3" = "Cluster 4: 248 genes", 
+                "5" = "Cluster 5: 124 genes", 
+                "6"="Cluster 6: 55 genes",   
+                "special" = "special",
+                "ctrl"= "control")
+
+new_labels <- c("1" = "Cluster 6: 1190 genes", 
+                "2" = "Cluster 5: 258 genes", 
+                "3" = "Cluster 3: 103 genes", 
+                "4" = "Cluster 1: 211 genes", 
+                "5" = "Cluster 4: 81 genes", 
+                "6"="Cluster 2: 67 genes",   
+                "special" = "special",
+                "ctrl"= "control")
+
+new_labels <- c("1" = "Cluster 1: 278 genes", #170+108
+                "2" = "Cluster 6: 419 genes",  #272+147
+                "3" = "Cluster 7: 449 genes", 
+                "4" = "Cluster 4: 218 genes", #129+89
+                "5" = "Cluster 2:  226 genes", #129+97
+                "6"="Cluster 5: 204 genes",   
+                "7" = "Cluster 3: 143 genes", #89+54
+                "special" = "special",
+                "ctrl"= "control")
+
+new_labels <- c("1" = "Cluster 5: 121 genes", 
+                "2" = "Cluster 7: 90 genes", 
+                "3" = "Cluster 3: 115 genes", 
+                "4" = "Cluster 9: 283 genes", 
+                "5" = "Cluster 6: 77 genes", 
+                "6"="Cluster 4: 217 genes", #62+79+76   
+                "7"="Cluster 1: 114 genes", #51+63
+                "8" = "Cluster 8: 66 genes",
+                "9" = "Cluster 2: 154 genes",
+                "special" = "special")
+
+
+#df_filt$Clusters <- factor(df_filt$cluster, levels=c(16,7,4,1,38,29,24,23,6), ordered=TRUE)  #relevel as wished!
+
+
+str(split_data_w)
+#qwerty <- ready_df_w[,-c(12:45)]
+split_data_w <- split(ready_df_w, ready_df_w$Clusters)
+models_w <- lapply(split_data_w, function(x) {
+  lm(formula=value ~ stats::poly(Age, 3, raw = TRUE), data = x)
+})
+split_data_PBS <- split(ready_df_PBS, ready_df_PBS$Clusters)
+models_PBS <- lapply(split_data_PBS, function(x) {
+  lm(formula=value ~ stats::poly(Age, 3, raw = TRUE), data = x)
+})
+split_data_PolyIC <- split(ready_df_PolyIC, ready_df_PolyIC$Clusters)
+models_PolyIC <- lapply(split_data_PolyIC, function(x) {
+  lm(formula=value ~ stats::poly(Age, 3, raw = TRUE), data = x)
+})
+
+
+coefficients <- unname(coef(models$`6`))
+paste(format(coefficients[1] ), " + ", format(coefficients[2]), "*x + ", format(coefficients[3]  ), "*x^2 + ", format(coefficients[4]  ), "*x^3 + ", format(coefficients[5]  ), "*x^4 + ", format(coefficients[6]  ), "*x^5", sep = "")
+# paste(format(coefficients[1], digits = 1), " + ", format(coefficients[2], digits = 1), "*x + ", format(coefficients[3], digits = 1), "*x^2 + ", format(coefficients[4], digits = 1), "*x^3 + ", format(coefficients[5], digits = 1), "*x^4 + ", format(coefficients[6], digits = 1), "*x^5", sep = "")
+
+
+
+
+equations_w <- list()
+for (cluster in names(models_w)) {
+  coefficients <- unname(coef(models_w[[cluster]]))
+  equation_str <- paste(
+    format(coefficients[1]),
+    " + ", format(coefficients[2]), "*x + ",
+    format(coefficients[3]), "*x^2 + ", format(coefficients[4]), "*x^3",
+    sep = ""
+  )
+  equations_w[[paste0("", cluster)]] <- equation_str
+}
+names(equations_w) <- cluster_names
+equations_PBS <- list()
+for (cluster in names(models_PBS)) {
+  coefficients <- unname(coef(models_PBS[[cluster]]))
+  equation_str <- paste(
+    format(coefficients[1]),
+    " + ", format(coefficients[2]), "*x + ",
+    format(coefficients[3]), "*x^2 + ", format(coefficients[4]), "*x^3",
+    sep = ""
+  )
+  equations_PBS[[paste0("", cluster)]] <- equation_str
+}
+names(equations_PBS) <- cluster_names
+
+equations_PolyIC <- list()
+for (cluster in names(models_PolyIC)) {
+  coefficients <- unname(coef(models_PolyIC[[cluster]]))
+  equation_str <- paste(
+    format(coefficients[1]),
+    " + ", format(coefficients[2]), "*x + ",
+    format(coefficients[3]), "*x^2 + ", format(coefficients[4]), "*x^3",
+    sep = ""
+  )
+  equations_PolyIC[[paste0("", cluster)]] <- equation_str
+}
+names(equations_PolyIC) <- cluster_names
+
+
+head(models)
+#Ev E14toP7 Group C1to3
+#Ev E14toP3 Group C7to9
+
+p1 <- ggplot(ready_df, aes(chrAge, value, colour=Group)) +
+  geom_boxplot(aes(Age, value), alpha=0.1)+
+  scale_colour_manual(values = c("forestgreen", "forestgreen","red"))+ 
+  geom_smooth(formula = y ~ stats::poly(x, 5, raw = TRUE), 
+              method='gam',aes(as.numeric(Age), value, color= after_stat(y < 0) )) +
+  scale_fill_manual(values = c("forestgreen", "forestgreen","red"))+ #"limegreen"
+  facet_wrap(.~Clusters, ncol=1,labeller = labeller(Clusters = new_labels, Group=new_labels ))+
+  labs(title = "Evaluation of DEG clusters", 
+       # subtitle = "degPatterns with rlog transformed counts on special samples only",
+       x="Age",
+       y= "Z-score of gene abundance")+
+  # geom_smooth(se=F,formula = y ~ stats::poly(x, 5, raw = TRUE), method='gam',aes(as.numeric(Age), value, color= Group, fill=Group )) +
+  cowplot::theme_half_open(14)+
+  cowplot::background_grid()+
+  guides(fill="none",alpha= "none", color=guide_legend(override.aes=list(fill=NA)))+
+  geom_hline(aes(yintercept = 0), linetype=2, color="black")+
+  # geom_vline(data=ready_df, aes(xintercept = unlist(root_value)), linetype=2,size=1, color=c("forestgreen"))+
+  #ggforce::geom_sina(maxwidth = 0.3) +
+  #geom_rect(aes(fill = Age), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, alpha=0.006, color=NA, show.legend = F) +
+  theme(legend.position = "left",
+        legend.justification = "center",
+        legend.direction = "vertical",
+        legend.box = "vertical",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, size=10),
+        axis.title = element_text(face = "bold"),
+        plot.title =  element_markdown(size = 18, face = "bold"),
+        plot.subtitle = element_text(size = 15, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank(),
+        strip.text =  element_blank(),
+        panel.spacing.x = unit(1, "lines"),
+        plot.margin=unit(c(1,0.5,0.75,0.5),"cm"),
+        # strip.text.x = element_textbox( color = "white", fill = "#5D729D",  size = 12, face="bold",
+        #   halign = 0.5, linetype = 1, r = unit(5, "pt"), width = unit(1, "npc"),   padding = margin(5, 0, 5, 0), margin = margin(3, 3, 3, 3)))+
+        # strip.text.y.right = element_textbox(color = "white", fill = "#5D729D",   size = 12, orientation = "left-rotated",face="bold",halign = 0.5, linetype = 1, r = unit(5, "pt"), width = unit(1, "npc"),   padding = margin(5, 0, 5, 0), margin = margin(3, 3, 3, 3)),
+        strip.text.x = element_textbox_highlight( size = 12, face="bold",color = "white", fill = "forestgreen", box.color = "forestgreen",   halign = 0.5, linetype = 1, r = unit(5, "pt"), width = unit(1, "npc"),padding = margin(5, 0, 5, 0), margin = margin(3, 3, 3, 3),hi.labels = c("special"),
+                                                  hi.fill = "forestgreen", hi.box.col = "forestgreen", hi.col = "white"))+
+  geom_vline(data=ready_df,aes(xintercept = unlist(root_value)), linetype=2, size=1, color=c("forestgreen"))
+
+
+
+
+# GOterm annotation ----
+ego <- clusterProfiler::compareCluster(geneClusters            = DEGs, #list_data_E18 #DEGs #r
+                                       OrgDb         = org.Mm.eg.db,
+                                       ont           = "BP",
+                                       pAdjustMethod = "BH",
+                                       pvalueCutoff  = 1,
+                                       qvalueCutoff  = 1, 
+                                       keyType = "SYMBOL",
+                                       readable      = TRUE)
+ego@compareClusterResult
+enrichplot::dotplot(ego, showCategory=5,x="Cluster", color="p.adjust", 
+                    by = "Count", font.size = 14, size = "Count",includeAll = F) +   
+  xlab(NULL) + 
+  labs(title="Incongruent genes/proteins",
+       subtitle="Comparsion over time course")+
+  scale_color_gradientn(colours=rev(c("#b3eebe", "#46bac2", "#371ea3", "#95608e")))+
+  guides(size = guide_legend(override.aes=list(shape=1))) +
+  # scale_y_discrete(guide = guide_axis(n.dodge = 1))+
+  theme(panel.grid.major.y = element_line(linetype='dotted', color='#808080'),
+        panel.grid.major.x = element_line(linetype='dotted', color='#808080'),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size=15, face="bold"),
+        axis.text.y = element_text( size=rel(1.25), angle=0),
+        strip.background = element_blank(),
+        panel.border = element_blank(),
+        panel.spacing.x = unit(0,"line"), 
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 17, color = "grey", face="bold"))+
+  scale_y_discrete(labels=c("RNA splicing"=expression(bold('RNA splicing')),
+                            "actin filament organization"=expression(bold('actin filament organization')),
+                            parse=TRUE))
+#Extract info out of enrichGO----
+top_10$geneID <- gsub("/", ", ", top_10$geneID)
+top_10$Equation <- equations[as.character(top_10$Cluster)]
+top_10$Equation_c <- equations_c[as.character(top_10$Cluster)]
+top_10$Equation_sp <- equations_sp[as.character(top_10$Cluster)]
+
+lookup_table <- roots_df%>%
+  group_by(cluster) %>%
+  dplyr::summarize(root_value = paste(round(root_value, 3), collapse = ", ")) %>%
+  mutate(Cluster = paste0("", cluster)) 
+lookup_table_c <- roots_df_c %>%
+  group_by(cluster) %>%
+  dplyr::summarize(root_value = paste(round(root_value, 3), collapse = ", ")) %>%
+  mutate(Cluster = paste0("", cluster))
+lookup_table_sp <- roots_df_sp %>%
+  group_by(cluster) %>%
+  dplyr::summarize(root_value = paste(round(root_value, 3), collapse = ", ")) %>%
+  mutate(Cluster = paste0("", cluster)) 
+
+merged_df <- top_10 %>%
+  left_join(lookup_table_c, by = "Cluster")%>%
+  left_join(lookup_table_sp, by = "Cluster")
+merged_df <- top_10 %>%
+  left_join(lookup_table, by = "Cluster")
+merged_dff <- as.data.frame(merged_df)
+
+f <- unlist(merged_dff$Equation) %>%unique()%>%as.data.frame()
+f_c <- unlist(merged_dff$Equation_c) %>%unique()%>%as.data.frame()
+f_sp <- unlist(merged_dff$Equation_sp) %>%unique()%>%as.data.frame()
+row.names(f) <- paste0("Cluster ", c(1,4,3,2)) #arrange
+row.names(f_c) <- paste0("Cluster ", c(5,4,2,3,1))
+row.names(f_sp) <- paste0("Cluster ",c(5,4,2,3,1))
+f$Cluster <- row.names(f)
+f_c$Cluster <- row.names(f_c)
+f_sp$Cluster <- row.names(f_sp)
+
+merged_dfff <- merged_dff %>%
+  left_join(f, by = "Cluster")
+merged_dfff <- merged_dff %>%
+  left_join(f_c, by = "Cluster") %>%
+  left_join(f_sp, by = "Cluster")
+
+head(merged_dfff)
+
+merged_dfff$cluster <- NULL
+merged_dfff$cluster.x <- NULL
+merged_dfff$cluster.y <- NULL
+merged_dfff$Equation <- NULL
+merged_dfff$Equation_c <- NULL
+merged_dfff$Equation_sp <- NULL
+names(merged_dfff)[names(merged_dfff) == "."] <- "equation"
+names(merged_dfff)[names(merged_dfff) == "..x"] <- "Equation c"
+names(merged_dfff)[names(merged_dfff) == "..y"] <- "Equation sp"
+
+file_name <- "EvGO_analysis_E14toP7_AgeGroup_redAge.csv"
+file_name <- "EvGO_analysis_E14toP7_GroupAge_redGroup.csv"
+file_name <- "EvGO_analysis_E14toP7_special.csv"
+
+write.csv(merged_dfff, file = file_name, row.names = FALSE)
+
+
+
+# E19 volcanos ----
+## Figure 24 ----
+install_github("KatrionaGoldmann/volcano3D")
+library(volcano3D)
+install.packages("webshot")
+
+countDataWOMIA <- countData %>% dplyr::select(!(starts_with(c("E18_MIA","E19_MIA","P3_MIA"))))
+countDataE19 <- countDataWOMIA %>% dplyr::select((starts_with(c("E19"))))
+metaE19 <-meta[meta$samples %in% c(colnames(countDataE19)), ] 
+all(rownames(metaE19) == colnames(countDataE19))
+
+ddsE19 <- ddsH
+ddsE19 <- DESeqDataSetFromMatrix(countData = countDataE19,
+                                 colData = metaE19,
+                                 design = ~  Harvest.mode)
+dds_E19 <- DESeq(ddsE19) #both need to be run! (full and reduced model)
+dds_E19_2 <- DESeq(ddsE19, test = "LRT", reduced = ~ 1, parallel = F)
+res_E19 <- deseq_polar(dds_E19, dds_E19_2, "Harvest.mode"), 
+labs=c("In utero", "Pooled", "Ex utero"),
+scheme=c("grey","magenta4","turquoise", "deepskyblue4","deepskyblue","black", "purple")) 
+
+labs_E19 <- c("Lgi3", "Cdk11b", "Cep63",
+              #"Etf1", "Sumo3", "Cirbp", 
+              "H3c11", "Cbx3", "Septin5",
+              #"Safb","Vamp1", "Myh14", 
+              "Taok2", "Igf2bp1","Acrbp"
+              #"Ap2b1","Lrfn2", "Trim32"
+)
+volcano3D(res_E19, label_rows = labs_E19, colour_code_labels = T, label_size=10)
+radial_plotly(res_E19,  type=1, label_rows = labs_E19) #%>% toWebGL()
+radial_ggplot(res_E19, type=2, #type=2 
+              colour_code_labels = T,
+              label_rows = labs_E19)+
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.direction = "vertical",
+        legend.box = "vertical",
+        legend.text = element_text(size = 15, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank(),
+        plot.title = element_text(size = 18, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 15, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank())+
+  labs(title = "E19")#%>% toWebGL()
+
+df_ex_E19 <- row.names(res_E19@df$scaled[res_E19@df$scaled$lab=="e+",])
+df_ex_in_E19 <- row.names(res_E19@df$scaled[res_E19@df$scaled$lab=="e+i+",])
+df_in_E19 <- row.names(res_E19@df$scaled[res_E19@df$scaled$lab=="i+",])
+df_both_in_E19 <- row.names(res_E19@df$scaled[res_E19@df$scaled$lab=="b+i+",])
+df_both_E19 <- row.names(res_E19@df$scaled[res_E19@df$scaled$lab=="b+",])
+df_both_ex_E19 <- row.names(res_E19@df$scaled[res_E19@df$scaled$lab=="b+e+",])
+
+list_data_E19 <- list('Ex_E19' = df_ex_E19,
+                      'Ex_in_E19'=df_ex_in_E19,
+                      'In_E19'=df_in_E19,
+                      'Both_in_E19' = df_both_in_E19,
+                      'Both_E19'=df_both_E19,
+                      'both_ex_E19' = df_both_ex_E19)
+write.csv(res_E19@df$scaled, "E19birth.csv")
+res_E19@df$scaled[row.names(res_E19@df$scaled)=="Taok2",]
+
+a <- boxplot_trio(res_E19,  value = "Taok2",
+                  text_size = 7,
+                  plot_method = "ggplot",
+                  test = "polar_padj", # "polar_padj"
+                  levels_order = c("both", "in_utero", "ex_utero"),
+                  box_colours =  c("black", "deepskyblue4","magenta4"),
+                  step_increase = 0.1,
+                  my_comparisons=list(c("both", "in_utero"),
+                                      c("both", "ex_utero")))+
+  scale_y_continuous(name = "Expression\n(log2FoldChange)") + 
+  labs(title = "Taok2",color='Group')+ guides( fill="none")+
+  theme(legend.position="bottom")+
+  guides( alpha= "none",  colour="none", fill= guide_legend(override.aes = aes(colour = NA)))+
+  theme_minimal() +
+  theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(strip.text.x = element_text(size = 15, face="bold"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x = element_text( angle=45, hjust = 1, size=12.5),
+        axis.text.y = element_text( size=12.5, face="bold"),
+        axis.title =element_text( size = 15,  vjust=2, face="bold"),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom",
+        legend.justification = "center",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank())
+
+
+#Integration with proteomics: ----
+
+#Figure 30 ----
+# TPMs ---- 
+# here: ENTREZID for countData required!
+featureCounts <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq embryonal set/featureCOUNTS.csv")
+
+tpm <- function(countData, featureCounts) {
+  rate <- countData/featureCounts
+  rate/sum(rate)*1e6
+}
+
+nrow(countData) == length(featureCounts$Length)
+tpms <- apply(countData, 2, function(x) tpm(x, featureCounts$Length))
+tpms_df <- as.data.frame(tpms)
+cD <- tpms_df[rowSums(tpms_df) > 2, ]
+
+dim(cD)
+## Percentage plot ----
+
+Q1 <- quantile(rowSums(cD), 0.25)
+Q3 <- quantile(rowSums(cD), 0.75)
+IQR <- Q3 - Q1
+# Calculate upper and lower bounds
+Q4 <- Q3 + 1.5 * IQR
+Q0 <- Q1 - 1.5 * IQR
+
+cD <- tpms_df
+lowCount <- cD[rowSums(cD) <= Q1, ]
+#lowCount <- cD[rowSums(cD) > Q0 & rowSums(cD) <= Q1, ]
+mediCount <- cD[rowSums(cD) > Q1 & rowSums(cD) <= Q3, ]
+highCount <- cD[rowSums(cD) > Q3, ]
+
+ProteinCounts <- data_unique_all
+# Create labels for each quartile
+quartile_labels <- c("Low Count (<Q1)", "Medium Count (Q1 - Q3)", "High Count (> Q3)")
+proteins_in_low_count <- ProteinCounts[row.names(ProteinCounts) %in% row.names(lowCount), ]
+proteins_in_medium_count <- ProteinCounts[row.names(ProteinCounts) %in% row.names(mediCount), ]
+proteins_in_high_count <- ProteinCounts[row.names(ProteinCounts) %in% row.names(highCount), ]
+dim(proteins_in_high_count)
+plot_data <- data.frame(
+  Quartile = factor(quartile_labels, levels = quartile_labels),
+  Protein_Count = c(nrow(proteins_in_low_count), nrow(proteins_in_medium_count), nrow(proteins_in_high_count))
+)
+total_proteins <- sum(plot_data$Protein_Count)
+plot_data$Percentage <- (plot_data$Protein_Count / total_proteins) * 100
+
+custom_colors <- c("purple", "skyblue", "darkblue")
+
+ggplot(plot_data, aes(x = Quartile, y = Protein_Count, fill = Quartile)) +
+  geom_bar(stat = "identity") +
+  labs(title="Detected proteins by mass spec are\npredominantly high count RNA transcripts", 
+       y="Protein abundance detected in mass spectrometry", x="Quartile")+
+  guides(fill = "none") +theme_minimal() +
+  scale_fill_manual(values = custom_colors) +
+  geom_text(aes(label = paste0(round(Percentage, 2), "%")),
+            position = position_stack(vjust = 0.5), size = 6, fontface="bold",
+            family = "Arial", hjust = 0.5, color = "white") + 
+  theme( axis.text.x = element_text( hjust=1, size=15, face="bold", angle=45), #,  colour=mod_cor_col),
+         axis.text.y = element_text(  angle=0, size=15, face="bold"),
+         legend.justification = "center",
+         legend.direction = "vertical",
+         legend.box = "center",
+         legend.position = "bottom",
+         legend.text = element_text(size = 10, face = "bold"),
+         legend.title = element_text(size = 16, face = "bold"),
+         legend.key = element_rect(colour = NA, fill = NA),
+         axis.title = element_text( size = 16, vjust=2),
+         plot.title = element_text(size = 20, face = "bold", hjust=0.5),
+         plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+         strip.background =  element_blank(),
+         strip.text = element_text(size = 16, face = "bold"))
+## Quartile plot ----
+quartiles <- quantile(rowSums(cD), probs = c(0, 0.25, 0.5, 0.75, 1))
+Q0 <- quartiles[1]
+Q1 <- quartiles[2]
+Median <- quartiles[3]
+Q3 <- quartiles[4]
+Q4 <- quartiles[5]
+
+# Create the plot
+ggplot(data = data.frame(y = rowSums(cD)), aes(x = "", y = y)) +
+  scale_y_log10() + 
+  geom_boxplot(fill = "lightgrey", color = "darkgrey", alpha = 0.7, coef = 0.5) +
+  # geom_text(aes(x = 1.5, y = Q0, label = "Q0"), color = "purple", size = 9, family = "Arial", vjust = 0.1) +
+  #geom_text(aes(x = 1.5, y = Q1, label = "Q1"), color = "skyblue", size = 9, family = "Arial", vjust = 0.1) +
+  #geom_text(aes(x = 1.5, y = Median, label = "Median"), color = "red", size = 9, family = "Arial", vjust = 0.1) +
+  #geom_text(aes(x = 1.5, y = Q3, label = "Q3"), color = "skyblue", size = 9, family = "Arial", vjust = 0.1) +
+  #geom_text(aes(x = 1.5, y = Q4, label = "Q4"), color = "darkblue", size = 9, family = "Arial", vjust = 0.1) +
+  geom_point(aes(x = 1, y = rowSums(cD)), color = "black", alpha = 0.5) +
+  labs(title = "RNAseq data with quartiles",
+       x = "",
+       y = "Total Counts (log10)") +
+  coord_flip()+
+  theme_minimal()+ theme( axis.text.x = element_text( hjust=1, size=16, face="bold", angle=0), #,  colour=mod_cor_col),
+                          axis.text.y = element_text(  angle=0, size=18, face="bold"),
+                          legend.justification = "center",
+                          legend.direction = "vertical",
+                          legend.box = "center",
+                          legend.position = "bottom",
+                          legend.text = element_text(size = 10, face = "bold"),
+                          legend.title = element_text(size = 16, face = "bold"),
+                          legend.key = element_rect(colour = NA, fill = NA),
+                          axis.title = element_text( size = 18),
+                          plot.title = element_text(size = 30, face = "bold", hjust=0.5),
+                          plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                          strip.background =  element_blank(),
+                          strip.text = element_text(size = 16, face = "bold"))
+
+
+# Sankey plot ----
+# dataf <- data.frame(
+group=c("Differentially expressed genes \n"),
+subgroup=c("Upregulated \n genes \n","Downregulated \n genes \n"),
+subsubgroup=c("Upregulated at protein level, \n upregulated at RNA level \n",
+              "Downregulated at protein level, \n upregulated at RNA level \n",
+              "Upregulated at protein level, \n downregulated at RNA level \n",
+              "Downregulated at protein level, \n downregulated at RNA level \n"))
+df <- dataf %>%make_long(group, subgroup, subsubgroup)
+df <- df  %>% add_column(number= c(13314, 7641, 284, 13314,5673, 444, 13314, 7641,480,  13314,  5673,  540))
+ggplot(df, aes(x = x
+               , next_x = next_x
+               , node = node
+               , next_node = next_node
+               , fill = factor(node)
+               , label = paste0(node, "n=", number),
+               fontface="bold")
+)+
+  geom_sankey(flow.alpha = 0.5
+              , node.color = "black"
+              ,show.legend = FALSE)+
+  geom_sankey_label(size = 5, color = "black", fill= "white", hjust = 0.5)+
+  theme_minimal()+
+  theme(legend.position = "none")+
+  theme(axis.title = element_blank()
+        , axis.text.y = element_blank()
+        , axis.ticks = element_blank()  
+        , panel.grid = element_blank())+
+  scale_fill_brewer(palette = "Blues")+
+  #scale_fill_viridis_d()+
+  # scale_fill_manual(values = c("Downregulated at protein level, \n upregulated at RNA level \n (n=6)" = "red",
+  #                              "Upregulated at protein level, \n downregulated at RNA level \n (n=31)"  ="red",
+  #                             "Differentially detected \n proteins \n (n=239)"="red"))+
+  # scale_fill_viridis_d(option = "inferno")+
+  labs(title = "Differentially detected proteins also present in transcriptomic data")+
+  labs(subtitle = "Sankey diagram using  David Sjoberg's ggsankey package")+
+  labs(fill = 'Nodes')
+
+
+
+# MixOmics ----
+## Figure 31 ----
+
+## MixOmics ----
+
+ProteinCounts <- data_unique_all
+uniq_name <- make.names(ProteinCounts$ID, unique = TRUE)
+row.names(ProteinCounts) <- uniq_name
+ProteinCounts$ID <- NULL
+ProteinCounts$name <- NULL
+
+cD <- log2((counts(dds_lrt_G, normalized=TRUE, replaced=FALSE)+.5)) 
+cD <- log2((counts(dds_MIA, normalized=TRUE, replaced=FALSE)+.5)) 
+
+common_samples_RNA <- intersect(colnames(cD), colnames(ProteinCounts))
+common_genes_RNA <- intersect(rownames(cD), rownames(ProteinCounts))
+
+common_samples_Protein <- intersect(colnames(ProteinCounts), colnames(cD))
+common_genes_Protein <- intersect(rownames(ProteinCounts), rownames(cD))
+
+RNA_subset <- cD[common_genes_RNA, common_samples_RNA]
+Protein_subset <- ProteinCounts[common_genes_Protein, common_samples_Protein]
+
+RNA_subset <- RNA_subset[, colnames(Protein_subset)]
+
+# 12 samples incongruent, 249 genes/proteins incongruent
+colnames_only_in_cD <- setdiff(colnames(ProteinCounts), colnames(cD))
+rownames_only_in_cD <- setdiff(rownames(ProteinCounts), rownames(cD))
+
+unique_labels <- unique(experimentaldesign$label)
+new_df <- data.frame(Label = unique_labels, stringsAsFactors = FALSE)
+new_df <- left_join(new_df, experimentaldesign, by = c("Label" = "label"))
+rownames(new_df) <- new_df$Label
+new_df$Label <- NULL
+new_df_WOMIA <- subset(new_df, MIA == "FALSE") #41
+new_df_MIA <- new_df[new_df$Age %in% c("E18", "E19", "P3"), ] #49
+dim(new_df_MIA)
+
+RNA_subset_WOMIA <- RNA_subset[,colnames(RNA_subset) %in% row.names(new_df_WOMIA)]
+Protein_subset_WOMIA <- Protein_subset[,colnames(Protein_subset) %in% row.names(new_df_WOMIA)]
+RNA_subset_MIA <- RNA_subset[,colnames(RNA_subset) %in% row.names(new_df_MIA)]
+Protein_subset_MIA <- Protein_subset[,colnames(Protein_subset) %in% row.names(new_df_MIA)]
+
+dim(RNA_subset_MIA)
+length(y_MIA)
+x_WOMIA <- list(RNA=t(RNA_subset_WOMIA), Protein=t(Protein_subset_WOMIA))
+colnames(Protein_subset_WOMIA)
+y_WOMIA <- as.factor(c(rep("E14",7),rep("E16",6),
+                       rep("E17",6), rep("E18",6),rep("E19",4),
+                       #rep("E19_E",1), rep("E19_P",3),
+                       rep("P3",8), rep("P7",2)))
+x_MIA <- list(RNA=t(RNA_subset_MIA), Protein=t(Protein_subset_MIA))
+y_MIA <- as.factor(c(rep("E18",6),
+                     rep("E19",4),
+                     #rep("E19_E",1),rep("E19_P",3),
+                     rep("P3",8),
+                     rep("E18",5),
+                     rep("E19",3),
+                     #rep("E19_E",2), rep("E19_P",1),
+                     rep("P3",1),
+                     rep("E18",6),
+                     rep("E19",5),
+                     # rep("E19_E",3), rep("E19_P",2),
+                     rep("P3",1)))
+g <- new_df_MIA[, row.names(new_df_MIA) %in% colnames(Protein_subset_MIA)]
+
+summary(y)
+dim(RNA_subset_MIA)
+dim(data_unique_all)
+length(x_WOMIA)
+list.keepX = list(RNA = rep(4090, 2), Protein = rep(4090,2)) #4090 proteins #500
+list.keepX = list(RNA = rep(4147, 2), Protein = rep(4147,2)) #4090 proteins #500
+
+BiocManager::install('aljabadi/mixOmics@ggrepel')
+library('aljabadi/mixOmics@ggrepel')
+MyResult.diablo_WOMIA <- mixOmics::block.splsda(x_WOMIA, y_WOMIA,
+                                                keepX = list.keepX,near.zero.var = TRUE, design = "null") #non-sparse version 
+MyResult.diablo_MIA <- mixOmics::block.splsda(x_MIA, y_MIA, 
+                                              keepX = list.keepX,near.zero.var = TRUE, design = "null") #non-sparse version 
+MyResult.diablo_WOMIA$design
+MyResult.diablo_MIA$design
+
+#cimDiablo(MyResult.diablo_MIA,          margins = c(5, 16),
+#          legend.position = "right",          size.legend = 1,col.cex=1,
+#          color.Y=c("forestgreen", "deepskyblue2", "orchid2"))
+#        #color.Y=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"))
+
+mixOmics::plotIndiv(MyResult.diablo_WOMIA, ellipse = TRUE,  #block='weighted.average',   #block = 'average',
+                    legend.title = 'Age', legend.title.pch = 'Group',
+                    ind.names = TRUE,style="ggplot2",#ggplot2
+                    col=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+                    star=TRUE, X.label="Variate 1", Y.label="Variate 2", 
+                    legend=TRUE, cex=c(2.5),comp = c(1, 2),  
+                    main = 'PCAs with DIABLO')
+mixOmics::plotIndiv(MyResult.diablo_MIA, ellipse = TRUE,
+                    legend.title = 'Age', legend.title.pch = 'Group',
+                    ind.names = TRUE,style="ggplot2",#ggplot2
+                    col=c("forestgreen", "deepskyblue2", "orchid2"),
+                    star=TRUE, X.label="Variate 1", Y.label="Variate 2", 
+                    legend=TRUE, cex=c(2.5),comp = c(1, 2),  
+                    main = 'PCAs with DIABLO')
+
+MyResult.diablo_MIA$prop_expl_var
+
+
+gene <- scale(t(RNA_subset_WOMIA)[,  "Neurog1"], center = TRUE, scale = TRUE)
+protein <- scale(t(Protein_subset_WOMIA)[,  "Neurog1"], center = TRUE, scale = TRUE)
+Age <-  as.factor(c(rep("E14",7),rep("E16",6),
+                    rep("E17",6), rep("E18",6),rep("E19",4),
+                    #rep("E19_E",1), rep("E19_P",3),
+                    rep("P3",8), rep("P7",2)))
+par(mar = c(4, 4, 2, 2))
+boxplot(gene ~ Age, #col = c("deepskyblue2","red","forestgreen"),
+        col = c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+        xlab = 'Age', ylab = 'Expression levels, scaled',
+        par(cex.axis = 1.25),boxwex = 0.75,
+        main = 'Aif1 mRNA', plot=TRUE)
+boxplot(protein ~ Age, #col = c("deepskyblue2","red","forestgreen"),
+        col = c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+        xlab = 'Age', ylab = 'Abundance, scaled',
+        par(cex.axis = 1.25),boxwex = 0.75,
+        main = 'Aif1 protein',
+        plot=TRUE)
+
+
+Treatment <- c(rep("w",18),rep("PBS",9), rep("PolyIC",12))
+gene <- scale(t(RNA_subset_MIA)[,  "Smad4"], center = TRUE, scale = TRUE)
+protein <- scale(t(Protein_subset_MIA)[,  "Smad4"], center = TRUE, scale = TRUE)
+
+par(mar = c(4, 4, 2, 2))
+boxplot(gene ~ Treatment, col = c("deepskyblue2","red","forestgreen"),
+        # col = c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+        xlab = 'Age', ylab = 'Expression levels, scaled',
+        par(cex.axis = 1.25),boxwex = 0.75,
+        main = 'Smad4 mRNA', plot=TRUE)
+boxplot(protein ~ Treatment, col = c("deepskyblue2","red","forestgreen"),
+        #  col = c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"),
+        xlab = 'Age', ylab = 'Abundance, scaled',
+        par(cex.axis = 1.25),boxwex = 0.75,
+        main = 'Smad4 protein',
+        plot=TRUE)
+
+
+#plotIndiv() uses the variates component to plot the samples’ projection into the latent space. 
+#plotVar() does not use loadings, rather the correlation of each feature with the two displayed components
+#Data Integration Analysis for Biomarker discovery using Latent variable approaches for Omics studies. It can also be referred to as Multiblock (s)PLS-DA.
+mixOmics::plotVar(MyResult.diablo_MIA, var.names = c(T, T),
+                  legend=TRUE, pch=c(10,10), cutoff = 0.8)
+
+a <- mixOmics::plotArrow(MyResult.diablo_WOMIA, arrow.alpha = 1,  ellipse = TRUE,
+                         arrow.size = 1, arrow.length = 0.1,encircle = T,  encircleAlpha = 1,
+                         ind.names.size = 2.5, legend=T, legend.title.pch = 'Age',
+                         colby = "Age",  shape = "group")+ 
+  scale_color_manual(values=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple")) + 
+  labs(x = 'PC1' , y = 'PC2', title = 'PCA relationship in untreated samples', colour="Age") +  
+  theme_pubr()+ theme( axis.text.x = element_text( hjust=1, size=16, face="bold", angle=0), #,  colour=mod_cor_col),
+                       axis.text.y = element_text(  angle=0, size=18, face="bold"),
+                       legend.justification = "center",
+                       legend.direction = "horizontal",
+                       legend.box = "center",
+                       legend.position = "bottom",
+                       legend.text = element_text(size = 14, face = "bold"),
+                       legend.title = element_text(size = 16, face = "bold"),
+                       legend.key = element_rect(colour = NA, fill = NA),
+                       axis.title = element_text( size = 14),
+                       plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                       strip.background =  element_blank(),
+                       strip.text = element_text(size = 16, face = "bold"),
+                       plot.title = element_text(color = "black", size = 20, face = "bold", hjust = 0.5),
+                       axis.line = element_line(colour = "darkgrey", 
+                                                size = 0.5, linetype = "solid"))
+
+b <- mixOmics::plotArrow(MyResult.diablo_MIA, arrow.alpha = 1,  ellipse = TRUE,
+                         arrow.size = 1, arrow.length = 0.1,encircle = T,  encircleAlpha = 1,
+                         ind.names.size = 2.5, legend=T, legend.title.pch = 'Age',
+                         colby = "Age",  shape = "group")+ 
+  scale_color_manual(values=c("forestgreen", "deepskyblue2", "orchid2")) + 
+  guides(shape="none", colour="none")+
+  labs(x = 'PC1' , y = 'PC2', title = 'PCA relationship in treated samples', colour="Age") +  
+  theme_pubr()+ theme( axis.text.x = element_text( hjust=1, size=16, face="bold", angle=0), #,  colour=mod_cor_col),
+                       axis.text.y = element_text(  angle=0, size=18, face="bold"),
+                       #legend.justification = "center",
+                       #legend.direction = "horizontal",
+                       #legend.box = "center",
+                       #legend.position = "bottom",
+                       #legend.text = element_text(size = 14, face = "bold"),
+                       legend.text = element_blank(),
+                       legend.title = element_blank(),
+                       #legend.title = element_text(size = 16, face = "bold"),
+                       #legend.key = element_rect(colour = NA, fill = NA),
+                       axis.title = element_text( size = 16),
+                       plot.subtitle = element_text(size = 18, face = "bold", hjust=0.5, color="grey"),
+                       strip.background =  element_blank(),
+                       strip.text = element_text(size = 16, face = "bold"),
+                       plot.title = element_text(color = "black", size = 20, face = "bold", hjust = 0.5),
+                       axis.line = element_line(colour = "darkgrey", 
+                                                size = 0.5, linetype = "solid"))
+grid.arrange(a,b)
+grid.arrange(c,d)
+
+#selectVar(MyResult.diablo_WOMIA, block = 'RNA', comp = 1)$RNA$name 
+network(MyResult.diablo_WOMIA, blocks = c(1,2),
+        color.node = c('darkorchid', 'deepskyblue'), cutoff = 0.25)
+
+
+mixOmics::plotDiablo(MyResult.diablo_WOMIA, ncomp = 1,  
+                     #col=c("forestgreen", "deepskyblue2", "orchid2"))
+                     col=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"))
+
+mixOmics::plotDiablo(MyResult.diablo_MIA, ncomp = 1,  
+                     col=c("forestgreen", "deepskyblue2", "orchid2"))
+#col=c("red","coral1","khaki3","forestgreen", "deepskyblue2", "orchid2", "purple"))
+
+
+# Heatmaps ----
+df_ma <- reshape2::dcast(filtclusters_Group, genes+cluster+cluster_name ~ Age+Group, 
+                         value.var = "value"	)%>% as.data.frame()
+str(df_ma)
+row.names(df_ma) <- df_ma$genes
+df_ma$genes <- NULL
+subs <- df_ma[, c(1:2)]
+df_matrix <- df_ma[, -c(1:2)]
+
+colnames(T)
+colnames(P)
+dim(P)
+C <- data.frame(Population= metaE$Group)
+C <- data.frame(Population=metaWOMIA$Group)
+#C <- data.frame(Construct= metaE_special$Group)
+#C <- data.frame(Population= rep(c("ctrl","special"),9))
+C$Population <- as.factor(C$Population)
+ha_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = C,
+                              col = list(Population = c("special"="forestgreen","ctrl"= "red")))
+
+D <- data.frame(Age=metaE$Age)
+D <- data.frame(Age=c(rep("E14",7),rep("E16",6),
+                      rep("E17",6), rep("E18",6),
+                      rep("E19_E",1), rep("E19_P",3),
+                      rep("P3",8), rep("P7",4)))
+#D <- data.frame(Age=metaE_special$Age)
+#D <- data.frame(Age= rep(c("E14","E16","E17","E18", "E19_E","E19_P","P3","P5", "P7"), each=2)) #1
+D$Age <- as.factor(D$Age)
+ho_column = HeatmapAnnotation(annotation_name_gp = gpar(fontface = "bold", fontsize=12),
+                              annotation_name_side = "left",                    
+                              df = D,
+                              col = list(Age = c("E14"="#F8766D","E16" =  "#C49A00", "E17"="#53B400","E18" = "#00C094", "E19_E" =  "#00B6EB", "E19_P" = "#A58AFF", "P3"="#FB61D7", "P5"="grey", "P7"="black")))
+
+
+dend_all = as.dendrogram(hclust(dist(as.matrix(df_matrix_R))))
+dim(df_matrix_R)
+dend_all = color_branches(dend_all, k = 9)
+dend_all = color_branches(dend_all, k = 7)
+colnames(df_matrix_P)
+
+column_split = rep("group1", 90)
+column_split[13:24] = "group2"
+column_split[25:36] = "group3"
+column_split[37:48] = "group4"
+column_split[49:60] = "group5"
+column_split[61:72] = "group6"
+column_split[73:84] = "group7"
+column_split[85:88] = "group8"
+column_split[89:90] = "group9"
+
+column_split = rep("group1", 41)
+column_split[8:13] = "group2"
+column_split[14:19] = "group3"
+column_split[20:25] = "group4"
+column_split[26] = "group5"
+column_split[27:29] = "group6"
+column_split[30:37] = "group7"
+column_split[38:41] = "group8"
+
+column_split = rep("group1", 82)
+column_split[13:24] = "group2"
+column_split[25:36] = "group3"
+column_split[37:48] = "group4"
+column_split[49:60] = "group5"
+column_split[61:72] = "group6"
+column_split[73:82] = "group7"
+
+column_split = rep("group1", 18)
+column_split[3:4] = "group2"
+column_split[5:6] = "group3"
+column_split[7:8] = "group4"
+column_split[9:10] = "group5"
+column_split[11:12] = "group6"
+column_split[13:14] = "group7"
+column_split[15:16] = "group8"
+column_split[17:18] = "group9"
+
+row_split=subs$cluster_name
+row_split=subs$cluster
+row_split=subs$group
+
+
+cluster_names <- unique(subs$cluster_name)
+cluster_sizes <- table(subs$cluster)
+names(cluster_sizes) <- paste0("Cluster ", names(cluster_sizes))
+
+#barplot_data <- as.data.frame(cluster_sizes)
+#barplot_labels <- cluster_names[match(names(cluster_sizes), cluster_names)]
+#barplott <- barplot(barplot_data$Freq, names.arg = paste0("Cluster ", barplot_data$Var1, "\n(n = ", barplot_data$Freq, ")"), 
+#                   xlab = "Number of genes", ylab = "", las = 1, col = "gray", border = "white", horiz=T)
+#barplott_data <- data.frame(table(subs$cluster))
+
+
+min(df_matrix)
+max(df_matrix)
+install.packages("colorRamp2")
+library("colorRamp2")
+#df_m <- df_matrix[row.names(df_matrix)%in% d,]
+topp_GO$Description[1]
+##----- genes------
+top <- topp_GO
+C1 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[1],])
+C1_gene = rownames(df_matrix)[C1]
+C2 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[2],])
+C2_gene = rownames(df_matrix)[C2]
+C3 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[3],])
+C3_gene = rownames(df_matrix)[C3]
+C4 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[4],])
+C4_gene = rownames(df_matrix)[C4]
+C5 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[5],])
+C5_gene = rownames(df_matrix)[C5]
+C6 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[6],])
+C6_gene = rownames(df_matrix)[C6]
+C7 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[7],])
+C7_gene = rownames(df_matrix)[C7]
+C8 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[8],])
+C8_gene = rownames(df_matrix)[C8]
+C9 = rownames(df_matrix) %in% row.names(subs[subs$cluster_name==top$Description[9],])
+C9_gene = rownames(df_matrix)[C9]
+gene_lists <- list()
+for (i in 1:length(top$Description)) {
+  cluster_name <- top$Description[i]
+  cluster_indices <- subs$cluster_name == cluster_name
+  cluster_genes <- rownames(df_matrix)[rownames(df_matrix) %in% row.names(subs)[cluster_indices]]
+  gene_lists[[paste0("C", i, "_gene")]] <- cluster_genes
+}
+
+align_to = list("1" = which(row_split == "1"),  #works only with row_split=subs$cluster, not subs$cluster_names
+                "2" = which(row_split == "4"),
+                "3" = which(row_split == "3"),
+                "4" = which(row_split == "2"))
+# "2" = which(row_split == "5"),
+# "4" = which(row_split == "4"),
+panel_fun = function(index, nm) {
+  grid.rect(gp = gpar( colour="gray"))
+  grid.text(paste0(length(index), " genes"), 0.5, 0.5, 
+            gp = gpar(fontsize = 10, colour="gray"))
+}
+
+dev.off()
+
+#colnames(df_matrix) <- c("E14_special"="E14","E16_special" =  "E16", "E17_special"="E17","E18_special" = "E18", "E19_E_special" =  "E19_E", "E19_P_special" = "E19_P", "P3_special"="P3", "P5_special"="P5", "P7_special"="P7")
+#heat <- 
+subs$cluster_name <- factor(subs$cluster_name, levels=cluster_names)
+
+row_split=as.factor(T$GO)
+col_fun_RNA = colorRamp2(c(0,5,7.5,10,11,12,13,14,15), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+col_fun_RNA = colorRamp2(c(5,7.5,9,10,11,12,13,14,15), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+ComplexHeatmap::Heatmap(as.matrix(df_matrix_R),  #df_matrix
+                        bottom_annotation = ha_column,
+                        top_annotation = ho_column,
+                        show_heatmap_legend = TRUE, 
+                        row_split =row_split, #factor(subs$cluster, levels=c(1,5,6,4,2,3)), #factor(subs$cluster_name, levels=c(cluster_names)),
+                        col = col_fun_RNA,
+                        #col = col_fun_Protein,
+                        column_split = column_split,
+                        column_title="RNA" ,
+                        row_names_gp =  gpar(fontsize = 8, fontface = "bold"),
+                        column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+                        column_names_rot = 45, 
+                        show_row_dend = F,
+                        # row_order = order(intersect(row.names(df_matrix_R), row.names(df_matrix_P))), 
+                        border_gp = gpar(col = "grey"),
+                        cluster_columns = F,
+                        cluster_row_slices = F,
+                        row_title_gp = gpar(fontsize = 10),
+                        border=F,
+                        show_column_names = F,
+                        row_title_rot =0,
+                        width = ncol(mat)*unit(10, "mm"), 
+                        height = nrow(mat)*unit(0.23, "mm"),
+                        #show_row_names = T,
+                        heatmap_legend_param = list(labels_gp = gpar(fontsize = 10)),
+                        #heatmap_width = unit(20, "cm"), 
+                        #heatmap_height = unit(20, "cm"),
+                        show_parent_dend_line=F)
+
+row_split=as.factor(P$GO)
+col_fun_Protein = colorRamp2(c(-10,-7.5,-5,-2.5,0,2.5,5,7.5,10), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+col_fun_Protein = colorRamp2(c(-5,-4,-3,-2,0,2,3,4,5), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+ComplexHeatmap::Heatmap(as.matrix(df_matrix_P),  #df_matrix
+                        bottom_annotation = ha_column,
+                        top_annotation = ho_column,
+                        show_heatmap_legend = TRUE, 
+                        row_split =row_split, #factor(subs$cluster, levels=c(1,5,6,4,2,3)), #factor(subs$cluster_name, levels=c(cluster_names)),
+                        #col = col_fun_RNA,
+                        col = col_fun_Protein,
+                        column_split = column_split,
+                        column_title="Protein" ,
+                        row_names_gp =  gpar(fontsize = 9, fontface = "bold"),
+                        column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+                        column_names_rot = 45, 
+                        show_row_dend = F,
+                        # row_order = order(intersect(row.names(df_matrix_R), row.names(df_matrix_P))), 
+                        border_gp = gpar(col = "grey"),
+                        cluster_columns = F,
+                        cluster_row_slices = F,
+                        row_title_gp = gpar(fontsize = 10),
+                        border=F,
+                        show_column_names = F,
+                        row_title_rot =0,
+                        #show_row_names = T,
+                        heatmap_legend_param = list(labels_gp = gpar(fontsize = 10)),
+                        width = ncol(mat)*unit(10, "mm"), 
+                        height = nrow(mat)*unit(0.23, "mm"),
+                        show_parent_dend_line=F)
+
+
+lgd = Legend(title ="zscore of gene expression", 
+             col_fun = col_fun,direction = "vertical")
+grid.draw(lgd)
+ComplexHeatmap::draw(heat, 
+                     annotation_legend_list = lgd, 
+                     annotation_legend_side = "bottom")
+
+
+# Circos Heatmaps ----
+## Figure 32 ----
+ 
+# filtclusters_Group <- filtclusters_Group %>%  mutate(cluster_name = cluster_names[cluster])
+df_ma <- reshape2::dcast(filtclusters_Group, 
+                         genes+cluster+cluster_name ~ Age+Group, value.var = "value"	)%>%
+  as.data.frame()
+rownames(df_ma) <- df_ma$genes
+df_ma$genes <- NULL
+sub_1 <- df_ma[df_ma$cluster=="1",]
+sub_2 <- df_ma[df_ma$cluster=="2",]
+sub_3 <- df_ma[df_ma$cluster=="3",]
+sub_4 <- df_ma[df_ma$cluster=="4",]
+#subs <- subset(sub_dfma, row.names(sub_dfma) %in% filtclusters_Group$genes) # | row.names(df_matrix) %in% unlist(t[2,]))
+#subs <- sub_dfma[,c(1:2)]
+df_matrix_1 <- sub_1[, -c(1:2)]
+df_matrix_2 <- sub_2[, -c(1:2)]
+df_matrix_3 <- sub_3[, -c(1:2)]
+df_matrix_4 <- sub_4[, -c(1:2)]
+dim(df_matrix_4)
+
+circos.par(gap.after = c( 9))
+dend_col = structure(1:9, names = levels(as.factor(metaE$Age)))
+#dend_col = structure(1, names = levels(as.factor(subs$cluster_name)))
+
+circos.heatmap(t(as.matrix(df_matrix_1)),  col = col_fun, cluster = F,
+               #dend.side = "inside", 
+               #rownames.side = "outside",  
+               rownames.cex = runif(nrow(t(as.matrix(df_matrix_1))), min = 0.5, max = 0.5),
+               split = D$Age, 
+               show.sector.labels = T,
+               #dend.callback = function(dend, m, si) {
+               #  color_branches(dend, k = 9, col = dend_col[si])
+               # }
+)
+circos.heatmap(t(as.matrix(df_matrix_2)),  col = col_fun, cluster = F,
+               split = D$Age,  show.sector.labels = T)
+circos.heatmap(t(as.matrix(df_matrix_3)),  col = col_fun, cluster = F,
+               split = D$Age,  show.sector.labels = T)
+circos.heatmap(t(as.matrix(df_matrix_4)),  col = col_fun, cluster = F,
+               split = D$Age,  show.sector.labels = T)
+
+## Suppl. Fig. 8 ----
+RNAseq <- log2((counts(dds_lrt_G, normalized=TRUE, replaced=FALSE)+.5)) 
+#RNAseq <- rld_mat_bF_G
+#RNAseq <- df_matrix 
+
+ProteinCounts <-  Protein_Matrix_all #data_unique_all    #assay(imputed_manual_sceWOMIA)
+colnames(ProteinCounts) <- c("E14_ctrl","E14_special",
+                             "E16_ctrl" ,"E16_special" ,
+                             "E17_ctrl" , "E17_special" , 
+                             "E18_ctrl", "E18_special",
+                             "E19_E_ctrl", #"E19_E_special",
+                             "E19_P_ctrl" , "E19_P_special",
+                             "P3_ctrl","P3_special" , 
+                             # "P5_ctrl" , "P5_special",
+                             "P7_ctrl", "P7_special")
+
+common_samples_RNA <- intersect(colnames(RNAseq), colnames(ProteinCounts))
+common_genes_RNA <- intersect(row.names(RNAseq), row.names(ProteinCounts))
+
+common_samples_Protein <- intersect(colnames(ProteinCounts), colnames(RNAseq))
+common_genes_Protein <- intersect(rownames(ProteinCounts), rownames(RNAseq))
+
+RNA_subset <- RNAseq[common_genes_RNA, common_samples_RNA]
+Protein_subset <- ProteinCounts[common_genes_Protein, common_samples_Protein]
+
+RNA_subset <- RNA_subset[, colnames(Protein_subset)]
+
+colnames_only_in_RNA <- setdiff(colnames(ProteinCounts), colnames(RNAseq))
+rownames_only_in_RNA <- setdiff(row.names(ProteinCounts), row.names(RNAseq))
+
+#dif <- intersect(new_df$Age, colnames(RNA_subset))
+#meta_df <- new_df[new_df$Age %in% dif, ]
+
+#gene_names <- "Rbm4, Srrm4, Srpk1, Rbmxl1, Hnrnpa1, Lmntd2, Prmt1, Hspa8, Ddx39b, Elavl4, Dazap1, Usb1, Hnrnpc, Nono, Snrpa, Tra2a, Hnrnph3, Sf3a2, Rbm38, Snrnp40, Usp39, Rnps1, Rbm10, Ncbp1, Txnl4a, Rbm6, Rbm4b, Hnrnph1, Jmjd6, Crnkl1, Thoc6, Sf1"
+#Query <- trimws(unlist(strsplit(gene_names, ",")))
+
+#index_RNA <- match(Query, row.names(RNA_subset))
+#sub_RNA <- RNA_subset[index_RNA, ]
+#index_Protein <- match(Query, row.names(Query_Protein))
+#sub_Protein <- Query_Protein[index_Protein, ]
+#sub_Protein_cleaned <- sub_Protein[!grepl("^NA", rownames(sub_Protein)), ]
+#sub_Protein_cleaned[is.na(sub_Protein_cleaned)] <- 0
+
+#row.names(sub_Protein)
+#dim(sub_RNA)
+#Query_cD <- cD[row.names(cD)%in%Query,]
+#Query_cD <- countData[row.names(countData)%in%Query,]
+#Query_cD <- rld_mat_bF_G[row.names(rld_mat_bF_G)%in%Query,]
+#Query_RNA <- rld_mat_bF_G[row.names(rld_mat_bF_G)%in%Query,]
+
+head(filtclusters_Group)
+cluster_split <- split(filtclusters_Group, filtclusters_Group$cluster)
+cluster_split <- split(filtclusters_Age[, c(1, 3, 4, 5, 6, 11)], filtclusters_Age$cluster)
+
+cluster_matrices <- lapply(cluster_split, function(df) {
+  mat <- matrix(df$value, nrow = length(unique(df$genes)), ncol = length(unique(df$samples)))
+  rownames(mat) <- unique(df$genes)
+  colnames(mat) <- unique(df$samples)
+  return(mat)
+})
+
+min(is.na(Query_Protein))
+min(Query_Protein)
+max(Query_RNA)
+min(Query_RNA)
+#col_fun = colorRamp2(c(-7.5,-5,-2.5,-1,0,1,2.5,5,7.5), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+col_fun = colorRamp2(c(0,2,4,6,8,10,12,14,16), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+col_fun = colorRamp2(c(-2.5,-2,-1.5,-1,0,1,1.5,2,2.5), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+col_fun = colorRamp2(c(-1,0,1,2,3,4,5,10,15), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+#col_fun = colorRamp2(c(-6,-3,-1.5,-0.75,0,0.75,1.5,3,6), rev(c( "#B2182B", "#D6604D" ,"#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "darkblue")))
+
+Query2 <-  c(microglia$Gene, c("Aif1", "Itgam", "Cx3cr1"))
+Query3 <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/MarkerULN2.csv")%>% as.vector()
+Query_Protein <- data_unique_all[row.names(data_unique_all)%in%Query3$Rrad,] #Protein_Matrix_all
+Query_RNA <- RNAseq[row.names(RNAseq)%in%Query3$Rrad,] #rld_mat_bF_A
+Query_Protein <- Protein_subset[row.names(Protein_subset)%in%Query2,]
+Query_RNA <- RNA_subset[row.names(RNA_subset)%in%Query2,]
+Heatmap(as.matrix(Query_Protein), cluster_columns  = F)
+Query_Protein <- Protein_Matrix_all[row.names(Protein_Matrix_all)%in%Query,] #Protein_Matrix_all
+
+
+Query <- row.names(cluster_matrices[[1]])
+Query_Protein <- Protein_subset[row.names(Protein_subset)%in%Query,]
+Query_RNA <- RNA_subset[row.names(RNA_subset)%in%Query,]
+Heatmap(as.matrix(Query_Protein), cluster_columns  = F)
+
+dim(cluster_matrices[[1]]) #312
+dim(cluster_matrices[[2]]) #271
+dim(cluster_matrices[[3]]) #624
+dim(cluster_matrices[[4]]) #331
+dim(cluster_matrices[[5]]) #231
+dim(cluster_matrices[[6]]) #55
+
+#circos.par(gap.after = c( 8))
+#dend_col = structure(1:8, names = levels(as.factor(c("E14","E14","E16","E16","E17","E17","E18","E18", 
+#                                                     "E19_E","E19_P","E19_P","P3","P3", "P7", "P7"))))
+mean(Query_RNA)
+circos.heatmap(t(as.matrix(Query_RNA)),  col = col_fun, 
+               rownames.side = "outside",  
+               rownames.cex = runif(nrow(t(as.matrix(Query_RNA))),
+                                    min = 0.5, max = 0.5),
+               split=metaE$Age,
+               show.sector.labels = T, cluster = F)
+circos.heatmap(t(as.matrix(Query_Protein)),  col = col_fun, cluster = F,
+               rownames.side = "inside",  
+               rownames.cex = runif(nrow(t(as.matrix(Query_RNA))),
+                                    min = 0.5, max = 0.5),
+               split = as.factor(c(rep("E14",7),rep("E16",6),
+                                   rep("E17",6), rep("E18",6),
+                                   rep("E19_E",1), rep("E19_P",3),
+                                   rep("P3",8), rep("P7",2))), 
+               #split = c("E14","E14","E16","E16","E17","E17","E18","E18", 
+               #         "E19_E","E19_P","E19_P","P3","P3", "P7", "P7"),
+               show.sector.labels = F)
+#lgd = Legend(title ="zscore",  col_fun = col_fun,direction = "vertical")
+lgd = Legend(title ="log2 normalised counts",  col_fun = col_fun,direction = "vertical")
+grid.draw(lgd)
+
+circos.clear()
+dev.off()
+
+# KEGG Pathway ----
+## Figure 39 ----
+cluster_genes <- filtclusters[filtclusters$cluster==c(16),]%>% pull(genes) %>% unique()
+results_KEGG<- results_MIA
+results_KEGG <- as.data.frame(results_KEGG)
+results_KEGG$symbol<- row.names(results_KEGG)
+Aligned <- results_sp[which(row.names(results_sp) %in%cluster_genes),]
+#Aligned <- results_sp[which.min(results_sp$log2FoldChange),]
+dim(Aligned)
+Aligned <- results_KEGG[row.names(results_KEGG),]  #just all result genes
+
+RNAseq <- log2((counts(dds_MIA, normalized=TRUE, replaced=FALSE)+.5)) 
+RNAseq <- RNAseq%>%as.data.frame()
+RNAseq$row <- row.names(RNAseq)
+Aligned <- RNAseq[which(RNAseq$row %in%row.names(f)),]
+
+Aligned <- results_MIA[which(results_MIA$row %in%row.names(f)),]
+Aligned <- Aligned %>% mutate(entrezid=mapIds(x = org.Mm.eg.db,
+                                              keys = Aligned$row,
+                                              column = "ENTREZID",
+                                              keytype = "SYMBOL",
+                                              multiVals = "first"))
+al <- Aligned%>%pull(log2FoldChange, entrezid)
+al <- Aligned%>%pull(P3_MIA_Poly_pNeuroD_1, entrezid)
+
+geneList = sort(al, decreasing = TRUE)
+names(geneList)
+library("pathview")
+pathview(gene.data =geneList, pathway.id = "04310",species = "mmu",
+         same.layer = F, kegg.native = T,
+         limit = list(gene=0.1))#, out.suffix = "Wnt")
+
+
+# cnetplot of cluster ----
+## Suppl. Figure 7 ----
+p <-  cnetplot(x, showCategory=5, #showCategory=categorys, 
+               layout="kk",
+               # cex_gene = 1, cex_label_gene=0.5,
+               #color_category = "grey", color_gene="white",
+               cex.params = list(category_node = 1, gene_node = 1, category_label = 0, gene_label = 0),
+               color.params=list(edge=T, gene ="white", category="white"))+
+  theme_void()+
+  labs(title = "Top5 GOterm enrichment in Cluster 5")+
+  theme(legend.position="right",
+        plot.margin=unit(c(1,0.1,0.75,1),"cm"),
+        legend.direction = "vertical")+
+  theme(plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"))
+
+
+str(p$data)
+dat <- p$data
+dat
+## change the colors
+microglia <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/MicrogliaMarkerGenes.csv")
+microglia <- microglia[,c(1,3)]
+#microglia genes according to: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9368511/
+dat$color[dat$name %in% (microglia[microglia$Group=="AD",]%>%pull(Gene))] <- "yellow"
+dat$color[dat$name %in% (microglia[microglia$Group=="EAE",]%>%pull(Gene))] <- "black"
+dat$color[dat$name %in% (microglia[microglia$Group=="LPS",]%>%pull(Gene))] <- "orange"
+dat$color[dat$name %in% (microglia[microglia$Group=="TBI",]%>%pull(Gene))] <- "violet"
+dat$color[dat$name %in% (microglia[microglia$Group=="Embryonic",]%>%pull(Gene))] <- "#FF0000"
+dat$color[dat$name %in% (microglia[microglia$Group=="Young",]%>%pull(Gene))] <- "#0000FF"
+dat$color[dat$name %in% (microglia[microglia$Group=="Adult",]%>%pull(Gene))] <- "green"
+
+dat$color[dat$name %in%(microglia%>%pull(Gene))] <- "black"
+dim(dat)
+dat$fill <- c(rep('GO',5), rep("gene", 218))
+## stuff it back in there
+p$data <- dat
+p$data[5:223,]$name
+## check it out
+p+ geom_label_repel(data=p$data[1:5,],  aes_(x=~x,y=~y,label = ~name, fill=~name,
+                                             fontface = 'bold', color = 'white'), size=7, show.legend=F,force=5)+
+  #scale_fill_discrete(name = ~category)+
+  # scale_color_brewer(palette = "Set1") +
+  ggraph::scale_edge_colour_brewer(palette = "Set1")+
+  geom_text_repel(data=p$data[5:223,],direction=c("x"),
+                  aes_(x=~x,y=~y,label = ~name, fontface = 'bold', color = 'grey', size=4))+
+  #    verbose = TRUE)+
+  scale_fill_brewer(palette = "Set1", name = ~category)+
+  theme(legend.position="none",
+        plot.title = element_text(hjust = 1,  size = 20,colour="grey", face = "bold"))+
+  # geom_edge_link0(data=p$data[1:5,],aes_(x=~x,y=~y,col = ~category), width = 0.2) +
+  # ggforce::geom_mark_hull(aes(x,y, fill=fill), concavity = 4,expand = unit(2, "mm"), alpha = 0.25 ) 
+  geom_mark_hull(data=p$data[1:5,],
+                 aes_(x=~x,y=~y, fill=~name, group=~name),
+                 concavity = 4,    expand = unit(1, "mm"),
+                 alpha = 0.25) 
+
+#WGCNA ----
+## Fig. 36-38 ----
+
+countDataMIA <- countData %>% dplyr::select(!(starts_with(c("E14","E16","E17","E19_c_", "E19_pNeuroD","P5","P7"))))
+metaMIA2 <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq/R scripts/metaWGCNA_MIA.csv")
+#metaMIA2 <- read.csv("/Users/tabitharucker/Desktop/PhDEpiExp/NGS/RNAseq/R scripts/metaWGCNA_extended_MIA.csv")
+row.names(metaMIA2) <- metaMIA2$samples
+metaMIA2$samples <- NULL
+gsg <- WGCNA::goodSamplesGenes(t(countDataMIA))
+dim(countDataMIA)
+length(gsg$goodSamples)
+colnames(countDataMIA)
+ddsMIA <- DESeqDataSetFromMatrix(countData = countDataMIA,
+                                 colData = metaMIA2, # metaMIA
+                                 design = ~1)
+dds75 <- ddsMIA[rowSums(counts(ddsMIA) >= 15) >= 30,] 
+dds_norm_75 <- rlog(dds75, blind=F)
+rld_MIA <- assay(dds_norm_75)
+dim(norm.counts)
+
+norm.counts <- assay(dds_norm_75) %>%   t()
+sampleTree2 = hclust(dist(norm.counts), method = "average")
+custom_colors <- c("white", "skyblue", "grey","black")
+trait_colors <- numbers2colors(metaMIA2, colors = custom_colors,  signed = F)
+plotDendroAndColors(sampleTree2, trait_colors,
+                    addGuide = T, guideAll = T, 
+                    groupLabels = colnames(metaMIA2),#names(Traits[, -c(1, 2)]),
+                    main = "Sample dendrogram and trait heatmap",
+                    cex.dendroLabels = 0.8,cex.colorLabels=0.9)
+power <- c(c(1:10), seq(from = 12, to = 25, by = 2)) 
+sft <- pickSoftThreshold(norm.counts,
+                         powerVector = power,
+                         networkType = "signed", #signed!
+                         verbose = 3)
+sft.data <- sft$fitIndices
+
+a1 <- ggplot(sft.data, aes(Power, SFT.R.sq, label = Power)) +
+  geom_point() +
+  geom_text(nudge_y = 0.1) +
+  geom_hline(yintercept = 0.85, color = 'red') +
+  labs(x = 'Soft threshold (power)', y = 'Scale free topology model fit, signed R^2',
+       title="Scale independence") +
+  theme_pubclean()+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+a2 <- ggplot(sft.data, aes(Power, mean.k., label = Power)) +
+  geom_point() +
+  geom_text(nudge_y = 0.1) +
+  labs(x = 'Soft threshold (power)', y = 'Mean connectivity', title="Mean connectivity") +
+  theme_pubclean()+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+plot_grid(a1, a2, labels=c("A", "B"), ncol = 1, nrow = 2)
+soft_power <-12 #12 #8 #9  #18
+bwnet_12 <- blockwiseModules(norm.counts,
+                             maxBlockSize = 15500,  #as many genes as you have
+                             TOMType = "signed",
+                             power = soft_power,
+                             mergeCutHeight = 0.25,
+                             numericLabels = FALSE,
+                             randomSeed = 123,
+                             minModuleSize = 30,
+                             verbose = 3)
+
+
+plotDendroAndColors(bwnet_12$dendrograms[[1]], cbind(bwnet_12$unmergedColors, bwnet_12$colors),
+                    c("unmerged", "merged"),
+                    dendroLabels = F,
+                    addGuide = TRUE,
+                    hang= 0.03,
+                    guideHang = 0.05,
+                    main = "Gene cluster dendrogram with module association",
+                    cex.dendroLabels = 0.7,cex.colorLabels=0.9)
+
+#Traits <- read.csv("WGCNA_traits.csv")[,-c(1,2)]
+
+devtools::install_github("kevinblighe/CorLevelPlot")
+library(CorLevelPlot)
+
+module_eigengenes <- bwnet_12$MEs
+mod_cor <- colnames(module_eigengenes)
+
+mod_cor <- c("MEyellow","MEpurple", "MEpink", "MEblue","MEgrey","MEred",
+             "MEgreen","MEturquoise", "MEtan", "MEmagenta", "MEblack", "MEsalmon", "MEgreenyellow",  "MEbrown") 
+module_eigengene <- module_eigengenes[, mod_sorted]
+traits <- metaMIA2
+row.names(traits) <- row.names(metaMIA2)
+heatmap.data <- merge(module_eigengene, traits, by = 'row.names') #traits[,-c(1,2)]
+heatmap.data <- heatmap.data %>%  column_to_rownames(var = 'Row.names')
+heatmap.data$X <- NULL
+dim(heatmap.data)
+CorLevelPlot(heatmap.data,
+             x = names(heatmap.data)[c(15:21)],
+             y = names(heatmap.data)[14:1],
+             col= rev(brewer.pal(11,"RdBu")),
+             posColKey = "top")
+
+mod_sorted <- c("MEgreen","MEpurple", "MEred", "MEgrey","MEblue","MEpink","MEyellow",
+                "MEgreenyellow","MEmagenta", "MEsalmon", "MEtan", "MEblack", "MEturquoise", "MEbrown") 
+
+
+plo <- data.frame( PolyIC = PolyIC, PBS = PBS)%>% t()
+colnames(plo) <- c(naive)
+plo <- as.tibble(plo)
+df_plo <- melt(plo, id.vars=c("naive"))
+str(df_plo)
+
+naive <- c(0.05, -0.28, 0.18, 0.13, 0.08, -0.51, -0.4, 0.04, -0.19, 0.02, -0.23, 0.06, 0, 0.04, 'naive')
+PBS <- c(-0.14, 0.06, -0.18, -0.14, -0.1, 0.23, 0.22, -0.08, 0.17, 0.03, 0.21, 0.07, 0.13, 0.07, 'PBS')
+PolyIC <- c(0.08, 0.18, -0.12, -0.08, -0.11, 0.36, 0.31, -0.12, 0.1,0.03, 0.25, 0.03, 0.08,-0.04, 'PolyIC')
+
+plo <- data.frame( PolyIC = PolyIC, PBS = PBS, naive = naive)%>% t()
+colnames(plo) <- c(mod_sorted, "Treatment")
+plo <- as.tibble(plo)
+df_plo <- melt(plo, id.vars=c("Treatment"))
+df_plo[c(43:45),]$value <- NULL
+df_plo <- subset(df_plo, !apply(df_plo, 1, function(row) any(row == "NA")))
+manual_colours <-c("green","purple", "red", "grey","blue","pink","yellow",
+                   "greenyellow","magenta", "salmon", "tan", "black", "turquoise", "brown") 
+df_plo$variable <- factor(df_plo$variable, levels=mod_sorted)
+b <- ggplot(df_plo, aes(x =variable, y =as.numeric(value), fill=Treatment, colour=Treatment)) + 
+  geom_point(aes(x=variable,y=as.numeric(value), shape=Treatment)) +
+  #facet_wrap(.~Genes)+
+  geom_smooth(aes(x=as.numeric(variable),y=as.numeric(value)), se=T, 
+              method="loess",show_guide = F,lwd=2, span=0.2, alpha=.1)+
+  scale_colour_manual(values = c( "limegreen", "blue", "firebrick"), name="Treatment")+ #"limegreen"
+  scale_fill_manual(values = manual_colours)+ 
+  theme_light()+
+  theme_light()+   #theme_gdocs()+
+  theme(plot.margin = unit(c(1,0,1,0), "lines"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold", colour = "black"),
+        axis.text=element_text( size = 10), 
+        axis.title=element_text( size = 12, face = "bold"),
+        axis.text.y = element_text(  angle=0, size=14,colour=manual_colours, face="bold"),
+        axis.text.x = element_text( size=10, angle = 45, hjust=1, colour = "black"),
+        legend.position="right")+
+  guides()+
+  coord_flip()+
+  labs(title = "WGCNA modules sorted by pseudo-age",
+       x=" ",
+       y = "Pearson score")
+
+grid.arrange(a,b,c, ncol=3)
+#trait_cols <- Traits[, c("Age","Group", "Harvest.mode", "MIA", "Treatment")]
+#trait_cols <- sapply(trait_cols, as.numeric)
+#module_trait_cor <- cor(bwnet$MEs, trait_cols, use = "p")
+WGCNATree = flashClust(dist(t(module_eigengenes)), method = "average")
+#cucu <- c("grey","greenyellow", "tan", "red","green","pink","blue","turquoise", "black", "brown", "purple", "yellow", "magenta") 
+cucu <-c("yellow","purple", "pink", "blue","grey","red","green","turquoise", "tan", "magenta", "black", "salmon", "greenyellow",  "brown") 
+
+fviz_dend(x=WGCNATree ,cex = 0.9, lwd = 0.9, k = 14,
+          k_colors = rev(manual_colours),
+          rect = T, horiz = T,
+          rect_border = "gray", 
+          rect_fill = F,
+          color_labels_by_k = T,
+          xlab="Modules",
+          main = "Consensus clustering of consensus module eigengenes") +
+  theme(#plot.margin = unit(c(1,1,1,1), "cm"),
+    plot.title = element_text(hjust = 0.5,  size = 15, face = "bold", colour = "black"),
+    axis.text=element_text( size = 12, face = "bold"), 
+    text = element_text(face="bold"),
+    axis.title=element_text( size = 15, face = "bold", colour="grey"),
+    #axis.text.y = element_blank( ),
+    axis.text.y = element_text(face = "bold"),
+    legend.position="none") +
+  geom_hline(yintercept = 0.25, col="red")
+
+df <- as.data.frame(table(bwnet_12$colors))
+names(df)[names(df) == "Var1"] <- "Modules"
+df$Modules <- factor(df$Modules, levels = rev(cucu)) # levels(df$Modules)
+df <- df %>% dplyr::arrange(Modules)
+
+ggplot(df, aes(x=Modules, y=Freq, fill=Modules))+ 
+  coord_flip()+
+  geom_bar(stat="identity")+
+  scale_fill_manual(values=as.vector(df$Modules))+ 
+  theme(legend.position="none")+
+  ggtitle("Genes within modules")+
+  theme_light()+   #theme_gdocs()+
+  theme(plot.margin = unit(c(1,1,1,1), "lines"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold", colour = "black"),
+        axis.text=element_text( size = 10), 
+        axis.title=element_text( size = 12, face = "bold"),
+        axis.text.y = element_text( colour = "black", size=12),
+        axis.text.x = element_text( size=10, angle = 45, hjust=1, colour = "black"),
+        legend.position="none")+
+  labs(x = "Modules", 
+       y= "Gene counts")
+
+module.gene.mapping <- as.data.frame(bwnet_12$colors)
+mgm <- module.gene.mapping
+mgm$genes<- row.names(mgm)
+head(mgm)
+
+k <- melt(mgm, id.vars = c("bwnet_12$colors", "genes"))
+out <- split( mgm , f = mgm$`bwnet_12$colors`)
+
+out["bwnet_18$colors"] <- NULL
+out["pink"]
+names(out)
+
+new.pp <- unlist(out,recursive=FALSE)
+#new.pp$`yellow.bwnet_18$colors` <- NULL 
+str(new.pp)
+newbie <- new.pp[c("yellow.genes","purple.genes", "pink.genes", "blue.genes","grey.genes",
+                   "red.genes","green.genes","turquoise.genes", "tan.genes", "magenta.genes", 
+                   "black.genes", "salmon.genes", "greenyellow.genes",  "brown.genes") ]
+newbie<-new.pp[c("grey.genes","greenyellow.genes", "tan.genes", "red.genes",
+                 "green.genes","pink.genes","blue.genes","turquoise.genes", "black.genes",
+                 "brown.genes", "purple.genes", "yellow.genes", "magenta.genes") ]
+filtered_list <- grep("\\.genes$", names(new.pp), value = TRUE)
+result.pp <- new.pp[filtered_list]
+
+li <- list("MEpink"=row.names(e), "MEred"=row.names(f))
+outter@compareClusterResult$Cluster <- factor(outter@compareClusterResult$Cluster,
+                                              levels=c("brown.genes","turquoise.genes", "black.genes", "tan.genes","salmon.genes",
+                                                       "magenta.genes","greenyellow.genes","yellow.genes", "pink.genes", "blue.genes", 
+                                                       "grey.genes", "red.genes", "purple.genes",  "green.genes"))
+outter <- clusterProfiler::compareCluster(geneCluster = result.pp, #li
+                                          pvalueCutoff=1,
+                                          fun="enrichGO",ont="BP",
+                                          minGSSize = 10,
+                                          pAdjustMethod="BH",
+                                          OrgDb='org.Mm.eg.db', 
+                                          keyType="SYMBOL")
+enrichplot::dotplot(outter, showCategory=3,x="Cluster", color="p.adjust", 
+                    by = "Count", font.size = 7, size = "Count",includeAll = F) +   
+  xlab(NULL) + 
+  coord_flip()+
+  # labs(title="Top 10 biological functions in\nMIA (anti-)correlating modules",
+  #      subtitle = "Power=12, mergingHeight=0.25, \nont=BP, pvalueCutoff=1")+
+  scale_color_gradientn(colours=rev(c("#b3eebe", "#46bac2", "#371ea3", "#95608e")))+
+  guides(size = guide_legend(override.aes=list(shape=1))) +
+  labs(title="GOterms across gene modules")+
+  theme_light()+
+  # scale_x_discrete(labels=cucu)+
+  theme(
+    axis.text.y = element_text(angle = 0, vjust = 0, hjust=1, size=14,  face="bold",
+                               colour=rev(manual_colours)),
+    axis.text.x = element_text( hjust=1,size=12, angle=45), #size=rel(1.5)
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    panel.spacing.x = unit(0,"line"), 
+    plot.title = element_text(hjust = 0.5,  size = 15, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5,  size = 15, color = "grey", face="bold"))+
+  scale_y_discrete(guide = guide_axis(n.dodge = 1), 
+                   labels=c("Wnt signaling pathway"=expression(bold('Wnt signaling pathway')),
+                            "regulation of synapse organization"=expression(bold('regulation of synapse organization')),
+                            "neuron projection organization"=expression(bold('neuron projection organization')),
+                            "locomotory bahavior"=expression(bold('locomotory bahavior')),
+                            "regulation of membrane potential"=expression(bold('regulation of membrane potential')),
+                            parse=TRUE))
+
+theme_light()
+top_10 <- outter@compareClusterResult %>%    
+  group_by(Cluster) %>% slice_min(qvalue,n=10, with_ties=F) %>% 
+  dplyr::select(c("Cluster","ID","Description", 'qvalue', "Count", "geneID"))
+
+
+write.csv(top_10, "GO_WGCNA_All.csv")
+
+module_eigengenes <- bwnet_12$MEs
+bar=module_eigengenes[, paste("ME","red", sep="")]
+names <- 1:length(bar)
+colors <- "red"
+data <- data.frame(
+  x = row.names(bwnet_12$MEs),
+  y = bar,
+  AboveBelow = ifelse(bar > mean(bar), "Above", "Below"))
+center_formatter <- function(x) {
+  ifelse(x == 0, "0", paste0(signif(x / 1000, 3), "k"))
+}
+#mer <- merge(row.names(metaE), bwnet_12$MEs$MEred,  all.x = T)
+
+combined_data <- merge(data, meta, by.x = "x", by.y = "samples")
+
+combined_data$x <- factor(combined_data$x, levels =combined_data$x)
+combined_data$Treatment <- as.factor(combined_data$Treatment)
+combined_data$Group <- as.factor(combined_data$Group)
+levels(combined_data$Group) <- c("tDimer+", "pNeuroD+")
+combined_data$Harvest.mode <- as.factor(combined_data$Harvest.mode)
+levels(combined_data$Harvest.mode) <- c("Embryo", "Pup")
+colnames(combined_data)[colnames(combined_data) == "Harvest.mode"] <- "Harvest mode"
+combined_data$MIA <- as.factor(combined_data$MIA)
+combined_data$AboveBelow <- as.factor(combined_data$AboveBelow)
+
+HeatmapAnnotation(" " = anno_barplot(combined_data$y,
+                                     gp = gpar(fill = ifelse(combined_data$AboveBelow == "Above", "blue", "firebrick")),
+                                     height = unit(6, "cm"))) %v%
+  HeatmapAnnotation(df=combined_data[,4:8], show_legend = c( T, T, T, T),
+                    col=list(Treatment = c("w"="green4", "PBS"="blue", "PolyIC"="red"),
+                             MIA=c("FALSE"="white","MIA"="black"),
+                             Group=c("tDimer+"="red","pNeuroD+"="forestgreen"),
+                             "Harvest mode"=c("Embryo"="white","Pup"="black"),
+                             Age = c("E18"="magenta4", "E19_E"="blue3", "E19_P"="skyblue" ,"P3"="grey")))
+decorate_annotation(" ", { 
+  grid.text("MEred", y = unit(1, "npc") + unit(2, "mm"), just = "bottom",
+            gp = gpar(fontsize = 20, fontface = "bold")) 
+})
+decorate_annotation(" ", {grid.text("ME expression values", x = unit(-0.035, "npc") , y = unit(0.75, "npc") ,
+                                    just = "right", rot = 90, gp = gpar(fontsize = 10, fontface = "bold"))
+})
+
+
+
+log_MIA <- log2((counts(dds_MIA, normalized=TRUE, replaced=FALSE)+.5)) 
+log_Age <- log2((counts(dds_lrt_G, normalized=TRUE, replaced=FALSE)+.5)) 
+log_Protein <- PP
+
+mouse_genes <- c("Dvl1","Fzd8","Tcf7", "Sirt1","Rock2",
+                 "Shank2", "Grin1", "Pclo", "Grin2b", "Myo9a")
+mouse_genes <- c("Shank2", "Adnp")
+Exp <- t(log_MIA[row.names(log_MIA)%in%mouse_genes,])%>%as.data.frame()
+Exp <- t(log_Age[row.names(log_Age)%in%mouse_genes,])%>%as.data.frame()
+Ex <- filtclusters_Group2[filtclusters_Group2$genes%in%mouse_genes,c(1,3,5,6)]
+vec4 <- c(rep(c("RNA"), 18))
+Ex_RNA <- Ex%>%mutate(Method = vec4)
+
+Exp_Prot <- t(log_Protein[row.names(log_Protein)%in%mouse_genes,])%>%as.data.frame()
+
+Expp <- cbind(Exp, metaMIA_2[,c(2,3,6)])
+Expp <- cbind(Exp, metaE[,c(2,3)])
+
+vec1 <- c(rep(c("E14"), 2), 
+          rep(c("E16"), 2), 
+          rep(c("E17"), 2), 
+          rep(c("E18"), 2),
+          rep(c("E19_E"), 1),
+          rep(c("E19_P"), 2),
+          rep(c("P3"), 2),
+          rep(c("P7"), 2))
+vec2 <- c(rep(c("ctrl","special"), 4), 
+          rep(c("ctrl"), 1), 
+          rep(c("ctrl", "special"), 3))
+vec3 <- c(rep(c("Protein"), 15))
+vec1<- data.frame(Age=c(rep("E18",18),rep("E19",15), rep("P3",16)))
+vec2 <- data.frame(Treatment=c(rep("w",6),rep("PBS",6),rep("PolyI:C",6),
+                               rep("w",4),rep("PBS",5),rep("PolyI:C",6),
+                               rep("w",8),rep("PBS",4),rep("PolyI:C",4)))
+vec3 <- data.frame(Group=c(rep("ctrl",3),rep("special",3),
+                           rep("ctrl",3),rep("special",3),
+                           rep("ctrl",3),rep("special",3),
+                           rep("ctrl",3),rep("special",1),
+                           rep("ctrl",2),rep("special",2),
+                           rep("ctrl",3),rep("special",2),
+                           rep("ctrl",1),rep("special",1),
+                           rep("ctrl",4),rep("special",4),
+                           rep("ctrl",3),rep("special",1),
+                           rep("ctrl",3),rep("special",1)))
+Exp_Prot <- cbind(t(PP),vec1, vec2, vec3)
+Exp_Prot <- Exp_Prot %>%mutate(Age = vec1) %>%mutate(Group = vec2) %>%mutate(Method = vec3)
+Exp_Prot$samples <- row.names(Exp_Prot)
+row.names(Exp_Prot) <- NULL
+Exp_Prot$samples <- NULL
+Exp_Prot$value <- Exp_Prot$Tubb2a
+Exp_Prot$Tubb2a <- NULL
+Exp_Prot$genes <- "Tubb2a"
+without <- rbind(Ex_RNA, Exp_Prot)
+
+Expp$samples <- row.names(Expp)
+row.names(Expp) <- NULL
+Expp <- Expp%>% mutate(Method="RNA")
+#my_comparisons <- list(c("PolyIC", "w"), c("PBS", "w"))
+tbm <- rbind(Expp, Exp_Prot)
+CytoRNA <- reshape2::melt(tbm) #, id = c('samples', 'Treatment', 'Group', 'Age'))
+CytoRNA$Treatment <- factor(CytoRNA$Treatment, levels=c("w", "PBS", "PolyIC"))
+#CytoRNA$variable <- factor(CytoRNA$variable, levels=c("Ifng", "Il1b", "Il2", "Il6", "Il10", "Il17a", "Ccl2", "Tnf"))
+CytoRNA$variable <- as.factor(CytoRNA$variable, levels=mouse_genes)
+
+#devtools::install_github("psyteachr/introdataviz")
+#library("introdataviz")
+
+e18 <- Expp[Expp$Age=="E18",]
+e18 <- e18[e18$Treatment==c("w", "PolyIC"),]
+E18 <- Exp_Prot[Exp_Prot$Age=="E18",]
+E18 <- Exp_Prot[Exp_Prot$Treatment==c("w", "PolyI:C"),]
+
+ggplot(without) +
+  geom_point(aes(x = Shank2, y = Adnp, color = Age, shape=Group), alpha = 0.6,  size=5, stroke = 2) +   #shape = 16,
+  #  scale_colour_manual(values=rev(c("olivedrab3", "magenta4")),labels=c("stimulated",  "unstimulated")) +  #c("green4", "blue4", "red")
+  #scale_fill_manual(values=rev(c("forestgreen", "red")), labels=c("stimulated",  "unstimulated")) +
+  #  scale_shape_manual( values=c(16,17), labels=c("pCAG",  "pNeuroD")) +
+  theme_bw() +
+  labs(x = "Shank2", y = "Adnp", title="DEPs",
+       shape="Age") +
+  theme(strip.text.x = element_text(size = 15, face="bold"),
+        strip.background = element_rect(fill = "white", colour = "white"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x =  element_text( size=12.5, face="bold"),
+        axis.text.y = element_text( size=12.5, face="bold"),
+        axis.title =element_text( size = 15,  vjust=2, face="bold"),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom",
+        legend.direction = "vertical",
+        legend.box = "horizontal",
+        legend.justification = "center",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank())
+ggExtra::ggMarginal(p, type = "density", groupColour = TRUE, groupFill = TRUE)
+
+
+p <- ggplot(E18) +
+  geom_point(aes(x = Adnp, y = Shank2, color = Treatment, shape=Group), alpha = 0.6,  size=5, stroke = 2) +   #shape = 16,
+  scale_colour_manual(values=rev(c("olivedrab3", "magenta4")),labels=c("PolyI:C treated",  "untreated")) +  #c("green4", "blue4", "red")
+  #scale_fill_manual(values=rev(c("forestgreen", "red")), labels=c("stimulated",  "unstimulated")) +
+  scale_shape_manual( values=c(16,17), labels=c("pCAG",  "pNeuroD")) +
+  theme_bw() +
+  labs(x = "Adnp", y = "Shank2", title="Representative genes\n differentially expressed in MIA",
+       shape="Population") +
+  theme(strip.text.x = element_text(size = 15, face="bold"),
+        strip.background = element_rect(fill = "white", colour = "white"),
+        plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,  size = 20, color="grey"),
+        axis.text.x =  element_text( size=12.5, face="bold"),
+        axis.text.y = element_text( size=12.5, face="bold"),
+        axis.title =element_text( size = 15,  vjust=2, face="bold"),
+        legend.title = element_text( size = 12, face = "bold"),
+        legend.position="bottom",
+        legend.direction = "vertical",
+        legend.box = "horizontal",
+        legend.justification = "center",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank())
+ggMarginal(p, type = "density", groupColour = TRUE, groupFill = TRUE)
+
+module.gene.mapping <- as.data.frame(bwnet_12$colors)
+str(row.names(metaE))
+str(bwnet_12$MEs$MEred)
+
+e <- module.gene.mapping %>%   filter(`bwnet_12$colors` == 'pink') 
+f <- module.gene.mapping %>%   filter(`bwnet_12$colors` == 'red') 
+
+ego <- clusterProfiler::enrichGO(gene          = row.names(e),
+                                 OrgDb         = org.Mm.eg.db,
+                                 ont           = "BP",
+                                 keyType = "SYMBOL",
+                                 pvalueCutoff = 1)
+barplot(ego, showCategory=10, title="WGCNA MEpink")+
+  theme(legend.position = "right",
+        legend.justification = "center",
+        legend.direction = "vertical",
+        legend.box = "vertical",
+        legend.text = element_text(size = 10, face = "bold"),
+        legend.key = element_rect(colour = NA, fill = NA),
+        legend.background =element_blank(),
+        #legend.background = element_rect(fill="#5D729D", size=0.5, linetype="solid",   colour ="white"),
+        axis.text.x = element_text(angle = 45, hjust = 1, size=12),
+        axis.title = element_text(face = "bold"),
+        plot.title = element_text(size = 18, face = "bold", hjust=0.5),
+        plot.subtitle = element_text(size = 15, face = "bold", hjust=0.5, color="grey"),
+        strip.background =  element_blank(),
+        panel.spacing.x = unit(1, "lines"))
+ego@result
+
+
+p <- cnetplot(ego, showCategory=5, #showCategory=categorys, 
+              layout="kk",
+              # cex_gene = 1, cex_label_gene=0.5,
+              #color_category = "grey", color_gene="white",
+              cex.params = list(category_node = 1, gene_node = 1, category_label = 0, gene_label = 0),
+              color.params=list(edge=T, gene ="white", category="white"))+
+  theme_void()+
+  labs(title = "Top5 GOterm enrichment in red module")+
+  theme(legend.position="right",
+        legend.direction = "vertical")+
+  theme(plot.title = element_text(hjust = 0.5,  size = 20, face = "bold"))
+p$data
+#p$data[6:46,]$name
+p+ geom_label_repel(data=p$data[1:5,],  aes_(x=~x,y=~y,label = ~name, fill=~name,
+                                             fontface = 'bold', color = 'white'), size=6, show.legend=F)+
+  # scale_fill_discrete(name = ~category)+
+  #scale_color_brewer(palette = "Set1") +
+  ggraph::scale_edge_colour_brewer(palette = "Set2")+
+  geom_text_repel(data=p$data[6:52,],direction=c("x"),
+                  aes_(x=~x,y=~y,label = ~name, fontface = 'bold', color = 'black', size=4))+
+  #    verbose = TRUE)+
+  #scale_fill_brewer(palette = "Set1", name = ~category)+
+  theme(legend.position="none",
+        plot.title = element_text(hjust = 0.5,  size = 20,colour="grey", face = "bold"))+
+  # geom_edge_link0(data=p$data[1:5,],aes_(x=~x,y=~y,col = ~category), width = 0.2) +
+  # ggforce::geom_mark_hull(aes(x,y, fill=fill), concavity = 4,expand = unit(2, "mm"), alpha = 0.25 ) 
+  geom_mark_hull(data=p$data[1:5,],
+                 aes_(x=~x,y=~y, fill=~name, group=~name),
+                 concavity = 4,
+                 expand = unit(1, "mm"),
+                 alpha = 0.25
+  ) 
+
+
+
+
+g <- rbind(e,f) #direct module comparison (too few genes for plot)
+e_genes <- results_MIA[results_MIA$row%in%row.names(g),]%>% pull(log2FoldChange, row) #Note that the log2 fold change estimates we use here have been subject to shrinkage to account for genes with low counts or highly variable counts.
+
+sig_H <- results_H  %>%  filter(padj<0.05) #Comparison E18 vs P7
+e_genes <- sig_H%>% pull(log2FoldChange,row) #Note that the log2 fold change estimates we use here have been subject to shrinkage to account for genes with low counts or highly variable counts.
+e_genes <- H_sig%>% pull(log2FoldChange, gene) #Note that the log2 fold change estimates we use here have been subject to shrinkage to account for genes with low counts or highly variable counts.
+
+geneList = sort(e_genes, decreasing = TRUE)
+
+#install.packages("msigdbr")
+#library(msigdbr)
+
+mm_hallmark_sets <- msigdbr(
+  species = "Mus musculus", # Replace with species name relevant to your data
+  category = "C5", subcategory = "BP"
+)
+gsea_results <- GSEA(
+  geneList = geneList, # Ordered ranked gene list
+  minGSSize = 3, # Minimum gene set size
+  maxGSSize = 100, # Maximum gene set set
+  pvalueCutoff = 1, # p-value cutoff
+  eps = 0, # Boundary for calculating the p value
+  seed = TRUE, # Set seed to make results reproducible
+  pAdjustMethod = "BH", # Benjamini-Hochberg correction
+  TERM2GENE = dplyr::select(
+    mm_hallmark_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+#The NES column contains the normalized enrichment score, which normalizes for the gene set size, for that pathway.
+#Notice how the genes that are in the gene set, indicated by the black bars, tend to be on the left side of the graph indicating that they have positive gene-level scores. The red dashed line indicates the enrichment score, which is the maximum deviation from zero. 
+#As mentioned earlier, an enrichment is calculated by starting with the most highly ranked genes (according to the gene-level log2 fold changes values) and increasing the score when a gene is in the pathway and decreasing the score when a gene is not in the pathway.
+view(gsea_results@result)
+gsea_result_df <- data.frame(gsea_results@result)
+most_positive_nes_plot <- enrichplot::gseaplot(
+  gsea_results,
+  geneSetID = "GOBP_CILIUM_MOVEMENT", #GOBP_CILIUM_MOVEMENT #GOBP_CENTRAL_NERVOUS_SYSTEM_NEURON_DEVELOPMENT #GOBP_REGULATION_OF_SYNAPTIC_PLASTICITY #GOBP_CELL_CELL_SIGNALING_BY_WNT   #GOBP_NEURON_DIFFERENTIATION  #HALLMARK_WNT_BETA_CATENIN_SIGNALING #GOBP_REGULATION_OF_GROWTH #GOBP_REGULATION_OF_ION_TRANSPORT
+  title = "GOBP_CILIUM_MOVEMENT",
+  color.line = "#0d76ff")
+most_positive_nes_plot
+write.csv(gsea_result_df, "GSEA_birth.csv")
+
+gsea_results@result[gsea_results@result$Description=="GOBP_CILIUM_MOVEMENT",]
+
+
+
+# chromosomes coverage ----
+## Suppl. Figure 9
+library("biomaRt")
+library("regioneR")
+install.packages("biomaRt")
+BiocManager::install("regioneR")
+gene.symbols <-sig_res_LRT_A$gene
+ensembl <- useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl")
+genes <- toGRanges(getBM(attributes=c('chromosome_name', 'start_position', 'end_position', 'mgi_symbol'),
+                         filters = 'mgi_symbol', values =gene.symbols, mart = ensembl))
+seqlevelsStyle(genes) <- "UCSC"
+
+library("karyoploteR")
+BiocManager::install("karyoploteR")
+kp <- plotKaryotype(genome="mm10")
+kpPlotMarkers(kp, data=genes, labels=genes$mgi_symbol, text.orientation = "vertical",
+              r1=0.5, cex=0.8, adjust.label.position = T)
+library("TxDb.Mmusculus.UCSC.mm10.knownGene")
+BiocManager::install("TxDb.Mmusculus.UCSC.mm10.knownGene")
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+dm.genes <- genes(txdb)
+results$symbol <- sig_res_LRT_A$gene
+sig_res_LRT_A$entrezid <- mapIds(x = org.Mm.eg.db,
+                                 keys = sig_res_LRT_A$gene,
+                                 column = "ENTREZID",
+                                 keytype = "SYMBOL",
+                                 multiVals = "first")
+results <- as.data.frame(sig_res_LRT_A)
+results$entrezid[is.na(results$entrezid)] <- row.names(results)[is.na(results$entrezid)]
+row.names(results) <- results$entrezid
+results$entrezid <- NULL
+genes <- c("Havcr2", "Pycard", "Lat2", "Unc93b1", "Cd180", "Klhl6", "Lacc1", "Laptm5", "Lyn", "Cyba", "Ticam2", "Cd300a", "Trem2", "Ptpn6", "Ighm", "Lgals3", "Blnk", "Casp1", "Plcg2", "Cd14", "Nckap1l", "Fyb", "Nfkbiz", "Slc15a3", "Nfkbid", "Nfam1", "Myd88", "Cd22", "Syk", "Ifi35", "Tyrobp", "Lpxn", "Fcer1g", "Nlrp1b", "Cd86", "Nlrp3", "Ctsh", "Tlr7", "Tlr2", "Cmklr1", "Lcp2", "Clec7a", "Dhx58", "Btk", "Lilrb4a", "Naglu", "Cd300lf", "Ptprc", "Irak2", "C3ar1", "Irf7", "Treml4", "Nfkb1", "Trim30a", "Sh2d1b1", "Zc3hav1", "Pik3ap1", "Tasl", "Oas1a", "Cgas", "Mapkapk3", "Myo1g", "Wdfy1", "Ifih1", "Tec", "Tlr1", "Tlr4", "Rab7b", "Cd28", "Trim5", "Hspa1a", "Prkch", "Zc3h12a", "Tlr13", "C5ar1", "Icosl", "Themis2", "Cd79b", "Dusp3", "Ly96", "Ptprj", "Nod1", "Tlr6", "Ninj1", "Tnf", "C3", "Il1b", "Igtp", "Tnfaip3", "Tnip2", "Scimp", "Clec2i", "Nlrp1a", "Psen2", "Trim12a", "Trim30d", "Arrb2", "Pram1", "Znfx1", "Bcl2a1d", "Oasl1", "Cmtm3", "Irgm2", "Nfkbia", "Wnk1", "Tifa", "Rsad2", "Ifi207", "Oas1g", "Trex1", "Elf1", "Lilrb4b", "Nfatc2", "Btnl2", "Zap70", "Ptpn22", "Dgkz", "Ifi208", "Tlr8", "Clec4n", "Tlr9", "Mef2c", "Cd81", "Malt1", "Cyld", "Gpr108", "Ddx60", "Irak3", "Irf1", "Cd47", "Cd38", "Lax1", "Cd36")
+res <- results[results$gene%in%genes,]
+
+mcols(dm.genes) <- res[names(dm.genes), c("log2FoldChange", "stat", "pvalue", "padj")]
+filtered.dm.genes <- dm.genes[!is.na(dm.genes$padj)]
+log.pval <- -log10(filtered.dm.genes$padj)
+mcols(filtered.dm.genes)$log.pval <- log.pval
+sign.genes <- filtered.dm.genes[filtered.dm.genes$padj < 0.05,]  #already filtered previously with 0.01
+kp <- plotKaryotype(genome="mm10")
+kpPoints(kp, data=sign.genes, y=sign.genes$log.pval, ymax=max(sign.genes$log.pval))
+fc.ymax <- ceiling(max(abs(range(sign.genes$log2FoldChange))))
+fc.ymin <- -fc.ymax
+col.over <- "magenta4"
+col.under <- "firebrick"
+sign.col <- rep(col.over, length(sign.genes))
+sign.col[sign.genes$log2FoldChange<0] <- col.under
+kp <- plotKaryotype(genome="mm10")
+kpPoints(kp, data=sign.genes, y=sign.genes$log2FoldChange, 
+         cex=1.5, ymax=fc.ymax, ymin=fc.ymin, col=sign.col)
+
+sus <- mcols(filtered.dm.genes)
+sus$suspect <- mapIds(x = org.Mm.eg.db,
+                      keys = row.names(sus),
+                      column = "SYMBOL",
+                      keytype = "ENTREZID",
+                      multiVals = "first")
+si <- sign.genes%>% as.data.frame()
+so <- si[si$seqnames=="chr11",]
+so$genes <- mapIds(x = org.Mm.eg.db,
+                   keys = row.names(so),
+                   column = "SYMBOL",
+                   keytype = "ENTREZID",
+                   multiVals = "first")
+so$genes
+
