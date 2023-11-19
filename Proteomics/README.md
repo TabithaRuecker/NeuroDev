@@ -1,6 +1,6 @@
-Mass Spectrometry data
+# Mass Spectrometry data
 
-This folder contains the proteomic data for the project.
+## This folder contains the proteomic data for the project.
 
 Raw data can be found under the PRIDE accession number PXD046067.
 - The countData in this folder is corrected for batch effect (using HarmonizR) and log2 transformed:
