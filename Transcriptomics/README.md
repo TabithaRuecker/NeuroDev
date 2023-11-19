@@ -1,6 +1,6 @@
-RNA seq data analysis
-* In this folder, both metaData as well as countData for the RNA-seq analyses are stored.
-* The countData will be removed soon, once GEO has confirmed the application and provided an accession number.
+# RNA seq data analysis
+## In this folder, both metaData as well as countData for the RNA-seq analyses are stored.
+The countData will be removed soon, once GEO has confirmed the application and provided an accession number.
 * * countTable_RNAseq.csv is the countData resulting from the preprocessing pipeline (TrimGalore!, STAR, featureCounts)
   * metaE_Annotation.csv is the matching metaData. Use this table together with the countData to reproduce the analyses presented in the dissertation.
 
