@@ -13,6 +13,7 @@ This repository is part of the PhD project of Tabitha Rücker. It includes a mul
 * RT-PCR (validation of RNAseq, raw data deposited at GEO: GSE249208)
 * Cytokine measurements (ELISA, validation of MIA)
 
+Database accession numbers are available for reviewers, publication will follow soon.
 
 ## Code and Resources Used 
 ** R version 2023.06.0+421  
