@@ -2,7 +2,7 @@
 
 ## This folder contains the proteomic data for the project.
 
-Raw data can be found under the PRIDE accession number PXD046067.
+Raw data can be found under the PRIDE accession number PXD046067 (reviewers only, public soon).
 - The countData in this folder is corrected for batch effect (using HarmonizR) and log2 transformed:
   * Raw Data_Harmonized.xlsx
   * Sample_annotation.xlsx is the matching metaData
